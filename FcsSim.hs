@@ -14,8 +14,7 @@ type Time = Double
 
 -- theta is azimuth (0, 2*pi), phi is inclination (0, pi)
 sphericalToCartesian :: Double -> Double -> Double -> V3 Double
-sphericalToCartesian r theta phi =
-    V3 x y z
+sphericalToCartesian r theta phi = V3 x y z
   where x = r * sin phi * cos theta
         y = r * sin phi * sin theta
         z = r * cos phi
@@ -27,7 +26,7 @@ evolveDiffusion d dt x = do
     phi <- uniformT 0 pi
     theta <- uniformT 0 (2*pi)
     let dx = sphericalToCartesian r theta phi
-    return $ x ^+^ dx
+    return $! x ^+^ dx
 
 beamIntensity :: V3 Double -> V3 Double -> Double
 beamIntensity w x =

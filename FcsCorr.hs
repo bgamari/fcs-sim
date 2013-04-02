@@ -1,5 +1,5 @@
 import FcsSim
-import qualified Data.Vector as V
+import qualified Data.Vector.Unboxed as V
 import Control.Monad.State
 import Data.Random
 import Data.Functor.Identity
@@ -15,7 +15,7 @@ import Statistics.Sample
 n = round 1e6
 taus = V.fromList $ map round
        $ logSpace 1 (0.8 * fromIntegral n) 200
-nSamples = 10
+nSamples = 100
 
 logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
 logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
@@ -26,7 +26,7 @@ main = withSystemRandom $ asGenIO $ \mwc->do
     let corrStats = V.fromList $ getZipList
                     $ fmap (meanVariance . V.fromList)
                     $ traverse (ZipList . V.toList) corrs
-    F.forM_ (V.zip taus corrStats) $ \(tau,(mean,var))->
+    V.forM_ (V.zip taus corrStats) $ \(tau,(mean,var))->
         printf "%1.2f\t%1.2f\t%1.2f\n" (fromIntegral tau::Double) mean (sqrt var)
 
 takeSample :: Monad m => Int -> RVarT m (V.Vector Double)
@@ -37,6 +37,6 @@ correlateSample taus n = do
     samples <- takeSample n
     return $ V.map (\tau->correlate tau samples) taus
 
-correlate :: RealFrac a => Int -> V.Vector a -> a
+correlate :: (V.Unbox a, RealFrac a) => Int -> V.Vector a -> a
 correlate tau xs = V.sum $ V.zipWith (*) xs xs'
   where xs' = V.drop tau xs V.++ V.take tau xs
