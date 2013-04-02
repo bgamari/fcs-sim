@@ -12,10 +12,10 @@ import Control.Applicative
 import Text.Printf
 import Statistics.Sample
 
-n = round 1e5
+n = round 1e6
 taus = V.fromList $ map round
        $ logSpace 1 (0.8 * fromIntegral n) 200
-nSamples = 4
+nSamples = 10
 
 logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
 logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
