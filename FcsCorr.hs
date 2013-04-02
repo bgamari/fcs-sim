@@ -21,8 +21,10 @@ logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
 logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
   where dx = (log b - log a) / fromIntegral n
 
-main = withSystemRandom $ asGenIO $ \mwc->do
-    corrs <- runRVarTWith id (replicateM nSamples $ correlateSample taus n) mwc
+main = do
+    corrs <- replicateM nSamples
+             $ withSystemRandom $ asGenIO
+             $ runRVarTWith id (correlateSample taus n)
     let corrStats = V.fromList $ getZipList
                     $ fmap (meanVariance . V.fromList)
                     $ traverse (ZipList . V.toList) corrs
