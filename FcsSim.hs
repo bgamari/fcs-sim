@@ -16,9 +16,9 @@ type Time = Double
 sphericalToCartesian :: Double -> Double -> Double -> V3 Double
 sphericalToCartesian r theta phi =
     V3 x y z
-  where !x = r * sin phi * cos theta
-        !y = r * sin phi * sin theta
-        !z = r * cos phi
+  where x = r * sin phi * cos theta
+        y = r * sin phi * sin theta
+        z = r * cos phi
 
 evolveDiffusion :: Monad m
                 => Diffusivity -> Time -> V3 Double -> RVarT m (V3 Double)
@@ -27,7 +27,7 @@ evolveDiffusion d dt x = do
     phi <- uniformT 0 pi
     theta <- uniformT 0 (2*pi)
     let dx = sphericalToCartesian r theta phi
-    return $! x ^+^ dx
+    return $ x ^+^ dx
 
 beamIntensity :: V3 Double -> V3 Double -> Double
 beamIntensity w x =
@@ -41,7 +41,7 @@ evolveIntensity :: Monad m => StateT (V3 Double) (RVarT m) Double
 evolveIntensity = do
     x <- get
     x' <- lift $ evolveDiffusion d dt x
-    put $ x'
+    put $! x'
     return $! beamIntensity beamWidth x'
 
 evolve :: StateT (V3 Double) (RVarT IO) ()
