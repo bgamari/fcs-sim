@@ -43,8 +43,3 @@ evolveIntensity = do
     x' <- lift $ evolveDiffusion d dt x
     put $! x'
     return $! beamIntensity beamWidth x'
-
-evolve :: StateT (V3 Double) (RVarT IO) ()
-evolve = do
-    replicateM_ (round 1e6) $
-        evolveIntensity >>= lift . lift . print
