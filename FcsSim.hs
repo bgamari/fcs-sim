@@ -1,12 +1,13 @@
 {-# LANGUAGE RecordWildCards #-}
 
+module FcsSim where
+
 import Data.Random
 import Linear
 import Control.Lens
 import Control.Monad
 import Control.Monad.State
 import Control.Applicative
-import System.Random.MWC hiding (uniform)
 
 type Diffusivity = Double
 type Time = Double
@@ -35,9 +36,6 @@ beamIntensity w x =
 d = 1 :: Diffusivity
 dt = 1e-3 :: Time
 beamWidth = pure 0.1 :: V3 Double
-
-main = withSystemRandom $ asGenIO $ \mwc->do
-    runRVarT (runStateT evolve (pure 0)) mwc
 
 evolveIntensity :: Monad m => StateT (V3 Double) (RVarT m) Double
 evolveIntensity = do
