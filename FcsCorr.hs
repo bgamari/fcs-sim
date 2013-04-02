@@ -23,7 +23,9 @@ logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
 
 main = withSystemRandom $ asGenIO $ \mwc->do
     corrs <- runRVarTWith id (replicateM nSamples $ correlateSample taus n) mwc
-    let corrStats = fmap (meanVariance . V.fromList) $ sequenceA corrs
+    let corrStats = V.fromList $ getZipList
+                    $ fmap (meanVariance . V.fromList)
+                    $ traverse (ZipList . V.toList) corrs
     F.forM_ (V.zip taus corrStats) $ \(tau,(mean,var))->
         printf "%1.2f\t%1.2f\t%1.2f\n" (fromIntegral tau::Double) mean (sqrt var)
 
