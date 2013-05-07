@@ -11,6 +11,7 @@ import System.Random.MWC hiding (uniform)
 import Control.Applicative
 import Text.Printf
 import Statistics.Sample
+import Control.Concurrent.ParallelIO
 
 n = round 1e6
 taus = V.fromList $ map round
@@ -22,7 +23,7 @@ logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
   where dx = (log b - log a) / fromIntegral n
 
 main = do
-    corrs <- replicateM nSamples
+    corrs <- parallel $ replicate nSamples
              $ withSystemRandom $ asGenIO
              $ runRVarTWith id (correlateSample taus n)
     let corrStats = V.fromList $ getZipList
