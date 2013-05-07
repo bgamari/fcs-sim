@@ -3,6 +3,7 @@ import Data.Random
 import FcsSim
 import Control.Applicative
 import Control.Monad.State
+import Linear       
 
 main = withSystemRandom $ asGenIO $ \mwc->do
     runRVarT (runStateT evolve (pure 0)) mwc
@@ -10,4 +11,4 @@ main = withSystemRandom $ asGenIO $ \mwc->do
 evolve :: StateT (V3 Double) (RVarT IO) ()
 evolve = do
     replicateM_ (round 1e6) $
-        evolveIntensity >>= lift . lift . print
+        evolveIntensity 1 1e-3 (pure 0.1) >>= lift . lift . print

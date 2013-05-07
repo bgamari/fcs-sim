@@ -13,7 +13,7 @@ import Text.Printf
 import Statistics.Sample
 import Control.Concurrent.ParallelIO
 
-n = round 1e6
+n = round 1e5
 taus = V.fromList $ map round
        $ logSpace 1 (0.8 * fromIntegral n) 200
 nSamples = 100
