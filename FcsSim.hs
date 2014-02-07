@@ -4,6 +4,7 @@ module FcsSim where
 
 import Data.Random
 import Linear
+import Data.Foldable as F
 import Control.Lens
 import Control.Monad
 import Control.Monad.State
@@ -29,8 +30,9 @@ evolveDiffusion d dt x = do
     return $! x ^+^ dx
 
 beamIntensity :: V3 Double -> V3 Double -> Double
-beamIntensity w x =
-    exp (negate $ fmap (^2) x `dot` fmap (\x->recip $ 2*x^2) w)
+beamIntensity w x = F.product $ f <$> w <*> x
+  where
+    f wx xx = exp (negate $ xx^2 / (2*wx^2))
 
 evolveIntensity :: Monad m => Diffusivity -> Time -> V3 Double
                 -> StateT (V3 Double) (RVarT m) Double
