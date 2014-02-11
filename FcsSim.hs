@@ -13,20 +13,19 @@ import Control.Applicative
 type Diffusivity = Double
 type Time = Double
 
--- theta is azimuth (0, 2*pi), phi is inclination (0, pi)
-sphericalToCartesian :: Double -> Double -> Double -> V3 Double
-sphericalToCartesian r theta phi = V3 x y z
-  where x = r * sin phi * cos theta
-        y = r * sin phi * sin theta
-        z = r * cos phi
-
+step3D :: Monad m
+       => Diffusivity -> Time -> RVarT m (V3 Double)
+step3D d dt = do
+    dir <- V3 <$> dist <*> dist <*> dist
+    r <- normalT 0 (6*d*dt)
+    return $ r *^ normalize dir
+  where
+    dist = uniformT (-1) 1
+       
 evolveDiffusion :: Monad m
                 => Diffusivity -> Time -> V3 Double -> RVarT m (V3 Double)
 evolveDiffusion d dt x = do
-    r <- normalT 0 (6*d*dt)
-    phi <- uniformT 0 pi
-    theta <- uniformT 0 (2*pi)
-    let dx = sphericalToCartesian r theta phi
+    dx <- step3D d dt
     return $! x ^+^ dx
 
 beamIntensity :: V3 Double -> V3 Double -> Double
