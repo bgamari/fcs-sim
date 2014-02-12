@@ -12,31 +12,38 @@ import Control.Applicative
 
 type Diffusivity = Double
 type Time = Double
+type Length = Double
 
 step3D :: Monad m
-       => Diffusivity -> Time -> RVarT m (V3 Double)
-step3D d dt = do
+       => Length -> RVarT m (V3 Double)
+step3D sigma = do
     dir <- V3 <$> dist <*> dist <*> dist
-    r <- normalT 0 (6*d*dt)
+    r <- normalT 0 sigma
     return $ r *^ normalize dir
   where
     dist = uniformT (-1) 1
-       
+  
 evolveDiffusion :: Monad m
-                => Diffusivity -> Time -> V3 Double -> RVarT m (V3 Double)
-evolveDiffusion d dt x = do
-    dx <- step3D d dt
-    return $! x ^+^ dx
+                => Length -> StateT (V3 Double) (RVarT m) (V3 Double)
+evolveDiffusion sigma = do
+    x <- get                
+    dx <- lift $ step3D sigma
+    let x' = x ^+^ dx
+    put $! x'
+    return x' 
+{-# INLINEABLE evolveDiffusion #-}
 
-beamIntensity :: V3 Double -> V3 Double -> Double
+beamIntensity :: V3 Length -> V3 Length -> Double
 beamIntensity w x = F.product $ f <$> w <*> x
   where
     f wx xx = exp (negate $ xx^2 / (2*wx^2))
 
-evolveIntensity :: Monad m => Diffusivity -> Time -> V3 Double
+evolveIntensity :: Monad m => Length -> V3 Double
                 -> StateT (V3 Double) (RVarT m) Double
-evolveIntensity d dt beamWidth = do
-    x <- get
-    x' <- lift $ evolveDiffusion d dt x
-    put $! x'
-    return $! beamIntensity beamWidth x'
+evolveIntensity sigma beamWidth = do
+    evolveDiffusion sigma
+    beamIntensity beamWidth <$> get
+{-# INLINEABLE evolveIntensity #-}
+
+stepSize :: Diffusivity -> Time -> Length
+stepSize d dt = 6 * d * dt

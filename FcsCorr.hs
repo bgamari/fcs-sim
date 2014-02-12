@@ -39,7 +39,8 @@ main = do
 takeSample :: Monad m => Diffusivity -> Int -> RVarT m (V.Vector Double)
 takeSample d n = evalStateT (V.replicateM n $ evolveIntensity d dt beamWidth) (pure 0)
 
-correlateSample :: Monad m => Diffusivity -> V.Vector Int -> Int -> RVarT m (V.Vector Double)
+correlateSample :: Monad m
+                => Diffusivity -> V.Vector Int -> Int -> RVarT m (V.Vector Double)
 correlateSample d taus n = do
     samples <- takeSample d n
     return $ V.map (\tau->correlate tau samples) taus
