@@ -1,5 +1,11 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses,
+             GeneralizedNewtypeDeriving, FlexibleContexts, TypeFamilies #-}
 
+import Control.Monad.Primitive.Class (MonadPrim(..))
+import Control.Monad.Morph
+import Pipes
+import qualified Pipes.Prelude as P
+import Pipes.Vector
 import Control.Lens
 import System.Random.MWC hiding (uniform)
 import Data.Random
@@ -9,7 +15,8 @@ import Control.Monad.State
 import Data.Traversable as T
 import Data.Foldable as F
 import Linear
-import qualified Data.Vector as V
+import qualified Data.Vector.Generic as V
+import qualified Data.Vector.Storable as VS
 
 -- units:
 --   length:   nm
@@ -29,63 +36,45 @@ sigma = 6.5 -- nm
 beamWidth = V3 400 400 1000
 
 -- | box size      
-boxSize = 10 *^ beamWidth
+boxSize = 15 *^ beamWidth
 
 evolve :: RVarT IO ()
 evolve = do
     traj <- evolveParticle boxSize beamWidth sigma
-    liftIO $ F.mapM_ print traj
+    liftIO $ V.mapM_ print traj
  
 pointInBox :: BoxSize -> RVarT m (V3 Length)
 pointInBox boxSize = traverse (\s->uniformT (-s/2) (s/2)) boxSize
 
-evolveUntilExit :: (Monad (m (RVarT n)), Monad n)
-                => BoxSize
-                -> V3 Length
-                -> Length
-                -> V3 Length
-                -> m (RVarT n) ()
-evolveUntilExit boxSize w sigma x0 =
-    runWhile pred go
-  where
-    pred :: V3 Length -> Bool
-    pred x = not $ F.any id
-             $ (\s x->abs x > s) <$> boxSize <*> x
-    go :: Monad m => LogT (V3 Length) (StateT (V3 Double) (RVarT m)) ()
-    go = logAction (evolveDiffusion sigma)
+inBox :: BoxSize -> V3 Length -> Bool
+inBox boxSize x = F.all id $ (\s x->abs x < s) <$> boxSize <*> x
 
-evolveParticle :: Monad m
+type BeamSize = V3 Length
+
+evolveUntilExit :: Monad m
+                => BoxSize -> Length -> V3 Double
+                -> Producer (V3 Double) (RVarT m) ()
+evolveUntilExit boxSize sigma start = do
+    evolveDiffusion sigma
+    >-> P.map (^+^ start)
+    >-> P.takeWhile (inBox boxSize)
+
+evolveParticle :: (Monad m, MonadPrim (RVarT m))
                => BoxSize -> V3 Length -> Length
-               -> RVarT m (V.Vector (V3 Length))
+               -> RVarT m (VS.Vector (V3 Length))
 evolveParticle boxSize w sigma = do
     x0 <- pointInBox boxSize
-    pred <- execStateT (evolveUntilExit boxSize w sigma append x0) V.empty
-    succ <- execStateT (evolveUntilExit boxSize w sigma append x0) V.empty
-    return $ V.reverse pred V.++ succ
-  where
-    append x = modify (`V.snoc` x)
+    va <- runToVector $ runEffect
+          $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector
+    vb <- runToVector $ runEffect
+          $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector
+    return $ V.reverse va V.++ vb
 
-newtype LogT s m a = LogT (StateT (V.Vector s) m a)
-                     deriving (Monad, Applicative, Functor, MonadTrans)
+instance MonadPrim m => MonadPrim (RVarT m) where
+    type BasePrimMonad (RVarT m) = BasePrimMonad m
+    liftPrim = lift . liftPrim
 
-logValue :: s -> LogT s m ()
-logValue s = modify' (`V.snoc` s)
-
-logAction :: Monad m => m s -> LogT s m ()
-logAction m = lift m >>= logValue
-    
-runLogT :: Monad m => LogT s m a -> m (a, V.Vector s)
-runLogT (LogT m) = runStateT m V.empty
-
-modify' :: Monad m => (s -> s) -> StateT s m ()
-modify' f = do
-    s <- get        
-    put $! f s
-
-runWhile :: Monad m => (s -> Bool) -> m s -> m ()
-runWhile pred step = go
-  where
-    go = do s <- step 
-            if pred s
-               then go
-               else return ()
+takeEvery :: Monad m => Int -> Pipe a a m r
+takeEvery n = forever $ do
+    await >>= yield
+    P.drop n
