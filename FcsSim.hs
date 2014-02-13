@@ -15,6 +15,8 @@ import Control.Applicative
 type Diffusivity = Double
 type Time = Double
 type Length = Double
+type BeamSize = V3 Length
+type BoxSize = V3 Length
 
 step3D :: Monad m => Length -> RVarT m (V3 Double)
 step3D sigma = do
@@ -40,3 +42,39 @@ beamIntensity w x = F.product $ f <$> w <*> x
 
 msd :: Diffusivity -> Time -> Length
 msd d dt = 6 * d * dt
+
+pointInBox :: BoxSize -> RVarT m (V3 Length)
+pointInBox boxSize = traverse (\s->uniformT (-s/2) (s/2)) boxSize
+
+inBox :: BoxSize -> V3 Length -> Bool
+inBox boxSize x = F.all id $ (\s x->abs x < s) <$> boxSize <*> x
+
+evolveUntilExit :: Monad m
+                => BoxSize -> Length -> V3 Double
+                -> Producer (V3 Double) (RVarT m) ()
+evolveUntilExit boxSize sigma start = do
+    evolveDiffusion sigma
+    >-> P.map (^+^ start)
+    >-> P.takeWhile (inBox boxSize)
+{-# INLINEABLE evolveUntilExit #-}    
+
+evolveParticle :: (Monad m, MonadPrim (RVarT m))
+               => BoxSize -> V3 Length -> Length
+               -> RVarT m (VS.Vector (V3 Length))
+evolveParticle boxSize w sigma = do
+    x0 <- pointInBox boxSize
+    va <- runToVector $ runEffect
+          $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector
+    vb <- runToVector $ runEffect
+          $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector
+    return $ V.reverse va V.++ vb
+{-# INLINEABLE evolveParticle #-}    
+
+instance MonadPrim m => MonadPrim (RVarT m) where
+    type BasePrimMonad (RVarT m) = BasePrimMonad m
+    liftPrim = lift . liftPrim
+
+takeEvery :: Monad m => Int -> Pipe a a m r
+takeEvery n = forever $ do
+    await >>= yield
+    P.drop n
