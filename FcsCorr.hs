@@ -18,11 +18,10 @@ import Statistics.Sample
 import Control.Concurrent.ParallelIO
 import Control.Monad.Primitive.Class       
 
-dt = 1e-3
 beamWidth = V3 400 400 1000
 taus = VU.fromList $ map round
-       $ logSpace 1 100000 100
-sigmas = replicate 1 6.5
+       $ logSpace 1 1000000 100
+sigmas = replicate 50 6.5
 boxSize = 15 *^ beamWidth
 
 logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
@@ -46,7 +45,8 @@ correlateSample :: (Monad m, MonadPrim (RVarT m))
 correlateSample sigma taus = do
     traj <- evolveParticle boxSize sigma
     let intensity = V.map (beamIntensity beamWidth) traj
-    return $ V.map (\tau->correlate tau intensity) taus
+        norm = correlate 0 intensity
+    return $ V.map (\tau->correlate tau intensity / norm) taus
 
 correlate :: (V.Vector v a, RealFrac a) => Int -> v a -> a
 correlate tau xs = V.sum $ V.zipWith (*) xs xs'
