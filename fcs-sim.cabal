@@ -14,6 +14,44 @@ cabal-version:       >=1.10
 executable fcs-sim
   main-is:             RunSim.hs
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
-  build-depends:       base >=4.6 && <4.7, vector >=0.10 && <0.11, random-fu >=0.2 && <0.3, transformers >=0.3 && <0.4, linear >=1.3 && <1.4, mwc-random >=0.13 && <0.14, statistics >=0.10 && <0.11, pipes >=4.0 && <4.1, lens >=4.0 && <4.1, monad-primitive >=0.1 && <0.2, mmorph >=1.0 && <1.1, pipes-vector >=0.5 && <0.6, cassava >=0.3 && <0.4, bytestring >=0.10 && <0.11, primitive >=0.5 && <0.6, text >=0.11 && <0.12
-  -- hs-source-dirs:      
+  build-depends:       base >=4.6 && <4.7,
+                       mtl,
+                       vector >=0.10 && <0.11,
+                       random-fu >=0.2 && <0.3,
+                       transformers >=0.3 && <0.4,
+                       linear >=1.3 && <1.4,
+                       mwc-random >=0.13 && <0.14,
+                       statistics >=0.10 && <0.11,
+                       pipes >=4.0 && <4.1,
+                       lens >=4.0 && <4.1,
+                       monad-primitive >=0.1 && <0.2,
+                       mmorph >=1.0 && <1.1,
+                       pipes-vector >=0.5 && <0.6,
+                       cassava >=0.3 && <0.4,
+                       bytestring >=0.10 && <0.11,
+                       primitive >=0.5 && <0.6,
+                       text >=0.11 && <0.12
+  default-language:    Haskell2010
+
+executable fcs-corr
+  main-is:             FcsCorr.hs
+  other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
+  build-depends:       base >=4.6 && <4.7,
+                       mtl,
+                       vector >=0.10 && <0.11,
+                       random-fu >=0.2 && <0.3,
+                       transformers >=0.3 && <0.4,
+                       linear >=1.3 && <1.4,
+                       mwc-random >=0.13 && <0.14,
+                       statistics >=0.10 && <0.11,
+                       pipes >=4.0 && <4.1,
+                       lens >=4.0 && <4.1,
+                       monad-primitive >=0.1 && <0.2,
+                       mmorph >=1.0 && <1.1,
+                       pipes-vector >=0.5 && <0.6,
+                       cassava >=0.3 && <0.4,
+                       bytestring >=0.10 && <0.11,
+                       primitive >=0.5 && <0.6,
+                       text >=0.11 && <0.12,
+                       parallel-io
   default-language:    Haskell2010
