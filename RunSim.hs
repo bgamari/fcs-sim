@@ -36,5 +36,5 @@ boxSize = 15 *^ beamWidth
 
 evolve :: RVarT IO ()
 evolve = do
-    traj <- evolveParticle boxSize beamWidth
+    traj <- evolveParticle boxSize sigma
     liftIO $ V.mapM_ print traj
