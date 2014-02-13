@@ -20,7 +20,7 @@ import Control.Monad.Primitive.Class
 
 beamWidth = V3 400 400 1000
 taus = VU.fromList $ map round
-       $ logSpace 1 1000000 100
+       $ logSpace 1 1000000 500
 sigmas = replicate 50 6.5
 boxSize = 15 *^ beamWidth
 
