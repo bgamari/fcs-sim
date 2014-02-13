@@ -1,7 +1,6 @@
 {-# LANGUAGE FlexibleInstances, MultiParamTypeClasses,
              GeneralizedNewtypeDeriving, FlexibleContexts, TypeFamilies #-}
 
-import Control.Monad.Primitive.Class (MonadPrim(..))
 import Control.Monad.Morph
 import Pipes
 import qualified Pipes.Prelude as P
@@ -16,7 +15,6 @@ import Data.Traversable as T
 import Data.Foldable as F
 import Linear
 import qualified Data.Vector.Generic as V
-import qualified Data.Vector.Storable as VS
 
 -- units:
 --   length:   nm

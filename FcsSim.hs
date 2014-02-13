@@ -1,9 +1,10 @@
-{-# LANGUAGE RecordWildCards, BangPatterns #-}
+{-# LANGUAGE RecordWildCards, BangPatterns, TypeFamilies, FlexibleContexts #-}
 
 module FcsSim where
 
 import Pipes
 import Pipes.Prelude as P
+import Pipes.Vector
 import Data.Random
 import Linear
 import Data.Foldable as F
@@ -11,6 +12,9 @@ import Control.Lens
 import Control.Monad
 import Control.Monad.State
 import Control.Applicative
+import Control.Monad.Primitive.Class (MonadPrim(..))
+import qualified Data.Vector.Generic as V
+import qualified Data.Vector.Storable as VS
 
 type Diffusivity = Double
 type Time = Double
@@ -59,9 +63,9 @@ evolveUntilExit boxSize sigma start = do
 {-# INLINEABLE evolveUntilExit #-}    
 
 evolveParticle :: (Monad m, MonadPrim (RVarT m))
-               => BoxSize -> V3 Length -> Length
+               => BoxSize -> Length
                -> RVarT m (VS.Vector (V3 Length))
-evolveParticle boxSize w sigma = do
+evolveParticle boxSize sigma = do
     x0 <- pointInBox boxSize
     va <- runToVector $ runEffect
           $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector

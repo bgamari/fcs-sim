@@ -1,5 +1,9 @@
+{-# LANGUAGE FlexibleContexts #-}                
+
 import FcsSim
-import qualified Data.Vector.Unboxed as V
+import qualified Data.Vector.Generic as V
+import qualified Data.Vector.Storable as VS
+import qualified Data.Vector.Unboxed as VU
 import Control.Monad.State
 import Data.Random
 import Data.Functor.Identity
@@ -12,14 +16,14 @@ import Control.Applicative
 import Text.Printf
 import Statistics.Sample
 import Control.Concurrent.ParallelIO
+import Control.Monad.Primitive.Class       
 
 dt = 1e-3
-beamWidth = 1   
-n = round 1e5
-taus = V.fromList $ map round
-       $ logSpace 1 (0.8 * fromIntegral n) 200
-nSamples = 100
-diffusivities = replicate 20 1e1 ++ replicate 20 2e3
+beamWidth = V3 400 400 1000
+taus = VU.fromList $ map round
+       $ logSpace 1 100000 100
+sigmas = replicate 1 6.5
+boxSize = 15 *^ beamWidth
 
 logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
 logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
@@ -27,24 +31,23 @@ logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
 
 main = do
     corrs <- parallel
-             $ map (\d->withSystemRandom $ asGenIO $ runRVarTWith id
-                        $ correlateSample d taus n
-                   ) diffusivities
-    let corrStats = V.fromList $ getZipList
-                    $ fmap (meanVariance . V.fromList)
+             $ map (\sigma->withSystemRandom $ asGenIO $ runRVarTWith id
+                        $ correlateSample sigma taus
+                   ) sigmas
+    let corrStats :: VU.Vector (Double, Double)
+        corrStats = V.fromList $ getZipList
+                    $ fmap (meanVariance . VU.fromList)
                     $ traverse (ZipList . V.toList) corrs
     V.forM_ (V.zip taus corrStats) $ \(tau,(mean,var))->
         printf "%1.2f\t%1.2f\t%1.2f\n" (fromIntegral tau::Double) mean (sqrt var)
 
-takeSample :: Monad m => Diffusivity -> Int -> RVarT m (V.Vector Double)
-takeSample d n = evalStateT (V.replicateM n $ evolveIntensity d dt beamWidth) (pure 0)
+correlateSample :: (Monad m, MonadPrim (RVarT m))
+                => Length -> VU.Vector Int -> RVarT m (VU.Vector Double)
+correlateSample sigma taus = do
+    traj <- evolveParticle boxSize sigma
+    let intensity = V.map (beamIntensity beamWidth) traj
+    return $ V.map (\tau->correlate tau intensity) taus
 
-correlateSample :: Monad m
-                => Diffusivity -> V.Vector Int -> Int -> RVarT m (V.Vector Double)
-correlateSample d taus n = do
-    samples <- takeSample d n
-    return $ V.map (\tau->correlate tau samples) taus
-
-correlate :: (V.Unbox a, RealFrac a) => Int -> V.Vector a -> a
+correlate :: (V.Vector v a, RealFrac a) => Int -> v a -> a
 correlate tau xs = V.sum $ V.zipWith (*) xs xs'
   where xs' = V.drop tau xs V.++ V.take tau xs
