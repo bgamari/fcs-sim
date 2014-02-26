@@ -15,7 +15,7 @@ executable fcs-sim
   main-is:             RunSim.hs
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
   ghc-options:         -threaded
-  build-depends:       base >=4.6 && <4.7,
+  build-depends:       base >=4.6 && <4.8,
                        mtl,
                        vector >=0.10 && <0.11,
                        random-fu >=0.2 && <0.3,
@@ -38,7 +38,7 @@ executable fcs-sim-corr
   main-is:             FcsCorr.hs
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
   ghc-options:         -threaded
-  build-depends:       base >=4.6 && <4.7,
+  build-depends:       base >=4.6 && <4.8,
                        mtl,
                        vector >=0.10 && <0.11,
                        random-fu >=0.2 && <0.3,
