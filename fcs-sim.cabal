@@ -34,7 +34,7 @@ executable fcs-sim
                        text >=0.11 && <2.0
   default-language:    Haskell2010
 
-executable fcs-corr
+executable fcs-sim-corr
   main-is:             FcsCorr.hs
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
   ghc-options:         -threaded

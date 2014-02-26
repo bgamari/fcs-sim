@@ -5,7 +5,6 @@ import qualified Data.Vector.Generic as V
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
 import Control.Monad.State
-import Control.Monad.Writer
 import Data.Random
 import Data.Functor.Identity
 import Data.Traversable as T
@@ -16,7 +15,6 @@ import System.Random.MWC hiding (uniform)
 import Control.Applicative
 import Text.Printf
 import Statistics.Sample
-import Control.Concurrent.ParallelIO
 import Control.Monad.Primitive.Class       
 import Pipes
 import Pipes.Concurrent
