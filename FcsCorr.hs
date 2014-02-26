@@ -18,6 +18,9 @@ import Text.Printf
 import Statistics.Sample
 import Control.Concurrent.ParallelIO
 import Control.Monad.Primitive.Class       
+import Pipes
+import Pipes.Concurrent
+import Control.Concurrent.Async
 
 beamWidth = V3 400 400 1000  -- nm
 diff = 6.5^2 / 6 / 10  -- nm^2 / ns       
@@ -27,35 +30,65 @@ logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
 logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
   where dx = (log b - log a) / fromIntegral n
 
-sampleCorrs :: Diffusivity -> Time -> VU.Vector Int -> IO (VU.Vector (Time, Double))
-sampleCorrs diff dt taus = do
-   corrs <- parallel $ replicate 100 $ sampleCorr diff dt taus
-   return $ V.concat corrs
+sampleCorrs :: Diffusivity -> Time -> VU.Vector Int
+            -> Producer (VU.Vector (Time, Double)) IO ()
+sampleCorrs diff dt taus =
+   Main.concurrently 4 (asProducer $ const $ sampleCorr diff dt taus)
+                       (each $ replicate 100 ())
 
-sampleCorr :: Diffusivity -> Time -> VU.Vector Int -> IO (VU.Vector (Time, Double))
-sampleCorr diff dt taus =
-    withSystemRandom $ asGenIO $ runRVarTWith id
-    $ withTaus `fmap` correlateSample sigma taus
+sampleCorr :: Diffusivity -> Time -> VU.Vector Int
+           -> Producer (VU.Vector (Time, Double)) IO ()
+sampleCorr diff dt taus = do
+    a <- lift $ withSystemRandom $ asGenIO $ runRVarTWith id
+         $ withTaus `fmap` correlateSample sigma taus
+    yield a
   where
     sigma = sqrt $ msd diff dt
     withTaus = V.zip (V.map (\t->realToFrac t * dt) taus)
 
-telling :: (Monoid a, Monad m) => m a -> WriterT a m ()
-telling action = do
-    x <- lift action
-    x `seq` return ()
-    tell x
+asProducer :: Monad m => (a -> Producer b m r) -> Pipe a b m r
+asProducer prod = forever $ await >>= go . prod
+  where
+    go :: Monad m => Producer b m r -> Pipe a b m ()
+    go prod = do
+      result <- lift $ next prod
+      case result of
+        Left r -> return ()
+        Right (a, prod') -> yield a >> go prod'
 
-main = do
-    corrs <- go
-    V.forM_ corrs $ \(tau,corr)->
-         printf "%1.5f\t%1.5f\n" tau corr
+concurrently :: Show a => Int -> Pipe a b IO r
+             -> Producer a IO () -> Producer b IO ()
+concurrently nWorkers pipe prod = do
+    (upOutput, upInput) <- lift $ spawn Unbounded -- up-stream
+    (downOutput, downInput) <- lift $ spawn Unbounded -- down-stream
+    workers <- lift $ replicateM nWorkers $ async $ do
+        runEffect $ fromInput upInput >-> void pipe >-> toOutput downOutput
+        performGC
+    let upWorker prod = do
+            x <- next prod
+            case x of
+              Left r -> putStrLn "done" >> F.mapM_ wait workers >> putStrLn "asdf"
+              Right (a, prod') -> do
+                runEffect $ yield a >-> toOutput upOutput
+                upWorker prod'
+    lift $ async $ upWorker prod
+    fromInput downInput
 
-go :: IO (VU.Vector (Time, Double))
-go = execWriterT $ do
-    telling $ sampleCorrs diff 10 (VU.fromList $ map round $ logSpace 1 10000 100)
-    telling $ sampleCorrs diff 100 (VU.fromList $ map round $ logSpace 1 10000 100)
-    telling $ sampleCorrs diff 1000 (VU.fromList $ map round $ logSpace 1 10000 100)
+main = runEffect $ go >-> printPoint
+  where
+    printPoint = forever $ do
+      corrs <- await
+      V.forM_ corrs $ \(tau,corr)->
+         lift $ printf "%1.5f\t%1.5f\n" tau corr
+
+go :: Producer (VU.Vector (Time, Double)) IO ()
+go = do
+    sampleCorrs diff 10    taus
+    sampleCorrs diff 100   taus
+    sampleCorrs diff 1000  taus
+    sampleCorrs diff 10000 taus
+  where
+    taus = VU.fromList $ map round $ logSpace 1 100000 100
 
 correlateSample :: (Monad m, MonadPrim (RVarT m))
                 => Length -> VU.Vector Int -> RVarT m (VU.Vector Double)
