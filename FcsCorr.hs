@@ -65,7 +65,7 @@ concurrently nWorkers pipe prod = do
     let upWorker prod = do
             x <- next prod
             case x of
-              Left r -> putStrLn "done" >> F.mapM_ wait workers >> putStrLn "asdf"
+              Left r -> F.mapM_ wait workers
               Right (a, prod') -> do
                 runEffect $ yield a >-> toOutput upOutput
                 upWorker prod'
