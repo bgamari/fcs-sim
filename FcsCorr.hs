@@ -19,6 +19,7 @@ import Control.Monad.Primitive.Class
 import Pipes
 import Pipes.Concurrent
 import Control.Concurrent.Async
+import GHC.Conc (getNumCapabilities)
 
 beamWidth = V3 400 400 1000  -- nm
 diff = 6.5^2 / 6 / 10  -- nm^2 / ns       
@@ -31,8 +32,8 @@ logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
 sampleCorrs :: Diffusivity -> Time -> VU.Vector Int
             -> Producer (VU.Vector (Time, Double)) IO ()
 sampleCorrs diff dt taus =
-   Main.concurrently 4 (asProducer $ const $ sampleCorr diff dt taus)
-                       (each $ replicate 100 ())
+   Main.concurrently (asProducer $ const $ sampleCorr diff dt taus)
+                     (each $ replicate 1000 ())
 
 sampleCorr :: Diffusivity -> Time -> VU.Vector Int
            -> Producer (VU.Vector (Time, Double)) IO ()
@@ -54,9 +55,15 @@ asProducer prod = forever $ await >>= go . prod
         Left r -> return ()
         Right (a, prod') -> yield a >> go prod'
 
-concurrently :: Show a => Int -> Pipe a b IO r
-             -> Producer a IO () -> Producer b IO ()
-concurrently nWorkers pipe prod = do
+concurrently :: Show a => Pipe a b IO r
+              -> Producer a IO () -> Producer b IO ()
+concurrently pipe prod = do
+    nWorkers <- lift getNumCapabilities
+    concurrently' nWorkers pipe prod
+
+concurrently' :: Show a => Int -> Pipe a b IO r
+              -> Producer a IO () -> Producer b IO ()
+concurrently' nWorkers pipe prod = do
     (upOutput, upInput) <- lift $ spawn Unbounded -- up-stream
     (downOutput, downInput) <- lift $ spawn Unbounded -- down-stream
     workers <- lift $ replicateM nWorkers $ async $ do
