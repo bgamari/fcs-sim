@@ -85,6 +85,7 @@ go = do
     sampleCorrs diff 100   taus
     sampleCorrs diff 1000  taus
     sampleCorrs diff 10000 taus
+    sampleCorrs diff 100000 taus
   where
     taus = VU.fromList $ map round $ logSpace 1 100000 100
 
