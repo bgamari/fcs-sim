@@ -1,4 +1,5 @@
-{-# LANGUAGE RecordWildCards, BangPatterns, TypeFamilies, FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module FcsSim where
 
@@ -8,11 +9,8 @@ import Pipes.Vector
 import Data.Random
 import Linear
 import Data.Foldable as F
-import Control.Lens
 import Control.Monad
-import Control.Monad.State
-import Control.Applicative
-import Control.Monad.Primitive.Class (MonadPrim(..))
+import Control.Monad.Primitive (PrimMonad(..))
 import qualified Data.Vector.Generic as V
 import qualified Data.Vector.Storable as VS
 
@@ -48,7 +46,7 @@ msd :: Diffusivity -> Time -> Length
 msd d dt = 6 * d * dt
 
 pointInBox :: BoxSize -> RVarT m (V3 Length)
-pointInBox boxSize = traverse (\s->uniformT (-s/2) (s/2)) boxSize
+pointInBox = traverse (\s->uniformT (-s/2) (s/2))
 
 inBox :: BoxSize -> V3 Length -> Bool
 inBox boxSize x = F.all id $ (\s x->abs x < s) <$> boxSize <*> x
@@ -56,13 +54,13 @@ inBox boxSize x = F.all id $ (\s x->abs x < s) <$> boxSize <*> x
 evolveUntilExit :: Monad m
                 => BoxSize -> Length -> V3 Double
                 -> Producer (V3 Double) (RVarT m) ()
-evolveUntilExit boxSize sigma start = do
+evolveUntilExit boxSize sigma start =
     evolveDiffusion sigma
     >-> P.map (^+^ start)
     >-> P.takeWhile (inBox boxSize)
-{-# INLINEABLE evolveUntilExit #-}    
+{-# INLINEABLE evolveUntilExit #-}
 
-evolveParticle :: (Monad m, MonadPrim (RVarT m))
+evolveParticle :: (Monad m, PrimMonad m)
                => BoxSize -> Length
                -> RVarT m (VS.Vector (V3 Length))
 evolveParticle boxSize sigma = do
@@ -72,11 +70,11 @@ evolveParticle boxSize sigma = do
     vb <- runToVector $ runEffect
           $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector
     return $ V.reverse va V.++ vb
-{-# INLINEABLE evolveParticle #-}    
+{-# INLINEABLE evolveParticle #-}
 
-instance MonadPrim m => MonadPrim (RVarT m) where
-    type BasePrimMonad (RVarT m) = BasePrimMonad m
-    liftPrim = lift . liftPrim
+instance PrimMonad m => PrimMonad (RVarT m) where
+    type PrimState (RVarT m) = PrimState m
+    primitive = lift . primitive
 
 takeEvery :: Monad m => Int -> Pipe a a m r
 takeEvery n = forever $ do
