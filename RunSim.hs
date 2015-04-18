@@ -1,5 +1,7 @@
-{-# LANGUAGE FlexibleInstances, MultiParamTypeClasses,
-             GeneralizedNewtypeDeriving, FlexibleContexts, TypeFamilies #-}
+{-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE TypeFamilies #-}
 
 import Control.Monad.Morph
 import Pipes
@@ -26,12 +28,12 @@ import qualified Data.Vector.Generic as V
 main = withSystemRandom $ asGenIO $ \mwc->do
     runRVarT evolve mwc
 
--- | Step length    
+-- | Step length
 sigma = 6.5 -- nm
 
 beamWidth = V3 400 400 1000
 
--- | box size      
+-- | box size
 boxSize = 15 *^ beamWidth
 
 evolve :: RVarT IO ()

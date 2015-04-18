@@ -1,4 +1,4 @@
-{-# LANGUAGE FlexibleContexts #-}                
+{-# LANGUAGE FlexibleContexts #-}
 
 import FcsSim
 import qualified Data.Vector.Generic as V
@@ -15,14 +15,14 @@ import System.Random.MWC hiding (uniform)
 import Control.Applicative
 import Text.Printf
 import Statistics.Sample
-import Control.Monad.Primitive.Class       
+import Control.Monad.Primitive.Class
 import Pipes
 import Pipes.Concurrent
 import Control.Concurrent.Async
 import GHC.Conc (getNumCapabilities)
 
 beamWidth = V3 400 400 1000  -- nm
-diff = 6.5^2 / 6 / 10  -- nm^2 / ns       
+diff = 6.5^2 / 6 / 10  -- nm^2 / ns
 boxSize = 15 *^ beamWidth
 
 logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
@@ -56,7 +56,7 @@ asProducer prod = forever $ await >>= go . prod
         Right (a, prod') -> yield a >> go prod'
 
 concurrently :: Show a => Pipe a b IO r
-              -> Producer a IO () -> Producer b IO ()
+             -> Producer a IO () -> Producer b IO ()
 concurrently pipe prod = do
     nWorkers <- lift getNumCapabilities
     concurrently' nWorkers pipe prod
