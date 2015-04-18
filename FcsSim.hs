@@ -37,9 +37,10 @@ evolveDiffusion sigma = unfold (step3D sigma) >-> P.scan (^+^) zero id
 {-# INLINEABLE evolveDiffusion #-}
 
 beamIntensity :: V3 Length -> V3 Length -> Double
-beamIntensity w x = F.product $ f <$> w <*> x
+beamIntensity w x = exp (negate alpha)
   where
-    f wx xx = exp (negate $ xx^2 / (2*wx^2))
+    f wx xx = xx^2 / (2*wx^2)
+    alpha = F.sum $ f <$> w <*> x
 {-# INLINEABLE beamIntensity #-}
 
 msd :: Diffusivity -> Time -> Length
