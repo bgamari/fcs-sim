@@ -20,6 +20,7 @@ type Length = Double
 type BeamSize = V3 Length
 type BoxSize = V3 Length
 
+-- | Generate a Gaussian-distributed step in Cartesian coordinates
 step3D :: Monad m => Length -> RVarT m (V3 Double)
 step3D sigma = do
     dir <- V3 <$> dist <*> dist <*> dist
@@ -45,12 +46,15 @@ beamIntensity w x = exp (negate alpha)
 
 msd :: Diffusivity -> Time -> Length
 msd d dt = 6 * d * dt
+{-# INLINEABLE msd #-}
 
 pointInBox :: BoxSize -> RVarT m (V3 Length)
 pointInBox = traverse (\s->uniformT (-s/2) (s/2))
+{-# INLINEABLE pointInBox #-}
 
 inBox :: BoxSize -> V3 Length -> Bool
 inBox boxSize x = F.all id $ (\s x->abs x < s) <$> boxSize <*> x
+{-# INLINEABLE inBox #-}
 
 evolveUntilExit :: Monad m
                 => BoxSize -> Length -> V3 Double
@@ -81,3 +85,4 @@ takeEvery :: Monad m => Int -> Pipe a a m r
 takeEvery n = forever $ do
     await >>= yield
     P.drop n
+{-# INLINEABLE takeEvery #-}
