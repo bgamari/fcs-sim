@@ -15,7 +15,7 @@ import System.Random.MWC hiding (uniform)
 import Control.Applicative
 import Text.Printf
 import Statistics.Sample
-import Control.Monad.Primitive.Class
+import Control.Monad.Primitive
 import Pipes
 import Pipes.Concurrent
 import Control.Concurrent.Async
@@ -64,8 +64,8 @@ concurrently pipe prod = do
 concurrently' :: Show a => Int -> Pipe a b IO r
               -> Producer a IO () -> Producer b IO ()
 concurrently' nWorkers pipe prod = do
-    (upOutput, upInput) <- lift $ spawn Unbounded -- up-stream
-    (downOutput, downInput) <- lift $ spawn Unbounded -- down-stream
+    (upOutput, upInput) <- lift $ spawn unbounded -- up-stream
+    (downOutput, downInput) <- lift $ spawn unbounded -- down-stream
     workers <- lift $ replicateM nWorkers $ async $ do
         runEffect $ fromInput upInput >-> void pipe >-> toOutput downOutput
         performGC
@@ -96,7 +96,7 @@ go = do
   where
     taus = VU.fromList $ map round $ logSpace 1 100000 100
 
-correlateSample :: (Monad m, MonadPrim (RVarT m))
+correlateSample :: (Monad m, PrimMonad m)
                 => Length -> VU.Vector Int -> RVarT m (VU.Vector Double)
 correlateSample sigma taus = do
     traj <- evolveParticle boxSize sigma
