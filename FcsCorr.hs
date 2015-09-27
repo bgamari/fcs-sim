@@ -17,29 +17,48 @@ import Text.Printf
 import Statistics.Sample
 import Control.Monad.Primitive
 import Pipes
+import qualified Pipes.Prelude as PP
 import Pipes.Concurrent
 import Control.Concurrent.Async
 import GHC.Conc (getNumCapabilities)
+import Options.Applicative
 
-beamWidth = V3 400 400 1000  -- nm
-diff = 6.5^2 / 6 / 10  -- nm^2 / ns
-boxSize = 15 *^ beamWidth
+defaultBeamWidth = V3 400 400 1000  -- nm
+defaultDiffusivity = 6.5^2 / 6 / 10  -- nm^2 / ns
+defaultBoxSize = 15 *^ beamWidth
+
+data Options = Opts { beamWidth     :: V3 Double
+                    , diffusivity   :: Double
+                    , boxSizeFactor :: Double
+                    , timeStep      :: Double
+                    , corrPts       :: Int
+                    , minLag        :: Double
+                    , maxLag        :: Double
+                    }
+
+-- Units:
+--   length: nm
+--   time;   ns
+
+options :: Parser Options
+options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value defaultBeamWidth )
+               <*> option auto ( short 'd' <> long "diffusivity" <> value defaultDiffusivity )
+               <*> option auto ( short 'b' <> long "box-size-factor" <> value 15 )
+               <*> option auto ( short 't' <> long "time-step" <> value 10 )
+               <*> option auto ( short 'n' <> long "corr-pts" <> value 100 )
+               <*> option auto ( short 'l' <> long "min-lag" <> value 1 )
+               <*> option auto ( short 'L' <> long "max-lag" <> value 10000000 )
 
 logSpace :: (Enum a, Floating a) => a -> a -> Int -> [a]
 logSpace a b n = [exp x | x <- [log a,log a+dx..log b]]
   where dx = (log b - log a) / fromIntegral n
 
-sampleCorrs :: Diffusivity -> Time -> VU.Vector Int
-            -> Producer (VU.Vector (Time, Double)) IO ()
-sampleCorrs diff dt taus =
-   Main.concurrently (asProducer $ const $ sampleCorr diff dt taus)
-                     (each $ replicate 1000 ())
 
-sampleCorr :: Diffusivity -> Time -> VU.Vector Int
+sampleCorr :: BoxSize -> V3 Double -> Diffusivity -> Time -> VU.Vector Int
            -> Producer (VU.Vector (Time, Double)) IO ()
-sampleCorr diff dt taus = do
+sampleCorr boxSize beamWidth diff dt taus = do
     a <- lift $ withSystemRandom $ asGenIO $ runRVarTWith id
-         $ withTaus `fmap` correlateSample sigma taus
+         $ withTaus `fmap` correlateSample boxSize beamWidth sigma taus
     yield a
   where
     sigma = sqrt $ msd diff dt
@@ -79,26 +98,21 @@ concurrently' nWorkers pipe prod = do
     lift $ async $ upWorker prod
     fromInput downInput
 
-main = runEffect $ go >-> printPoint
-  where
-    printPoint = forever $ do
-      corrs <- await
-      V.forM_ corrs $ \(tau,corr)->
-         lift $ printf "%1.5f\t%1.5f\n" tau corr
+main = do
+    args <- execParser $ info (helper <*> options) mempty
+    let taus :: VU.Vector Int
+        taus = VU.fromList $ map round $ logSpace (minLag args) (maxLag args) (corrPts args)
+    let sampleCorr' = sampleCorr (beamWidth args ^* boxSizeFactor args) (beamWidth args) (diffusivity args) (timeStep args) taus
+        sampleCorrs = Main.concurrently (asProducer $ const sampleCorr') (each $ replicate 1000 ())
+    runEffect $ Pipes.for (PP.zip (each [0..]) sampleCorrs) $ \(i,corr)->
+        liftIO $ writeFile ("out-"++show i) $ printCorr corr
 
-go :: Producer (VU.Vector (Time, Double)) IO ()
-go = do
-    sampleCorrs diff 10    taus
-    sampleCorrs diff 100   taus
-    sampleCorrs diff 1000  taus
-    sampleCorrs diff 10000 taus
-    sampleCorrs diff 100000 taus
-  where
-    taus = VU.fromList $ map round $ logSpace 1 100000 100
+printCorr :: VU.Vector (Time, Double) -> String
+printCorr = unlines . map (\(tau,g) -> printf "%1.5f\t%1.5f\n" tau g) . VU.toList
 
 correlateSample :: (Monad m, PrimMonad m)
-                => Length -> VU.Vector Int -> RVarT m (VU.Vector Double)
-correlateSample sigma taus = do
+                => BoxSize -> V3 Double -> Length -> VU.Vector Int -> RVarT m (VU.Vector Double)
+correlateSample boxSize beamWidth sigma taus = do
     traj <- evolveParticle boxSize sigma
     let intensity = V.map (beamIntensity beamWidth) traj
         norm = correlate 0 intensity

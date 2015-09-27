@@ -50,14 +50,31 @@ step3D sigma = do
     return $ r *^ normalize dir
   where
     dist = uniformT (-1) 1
+{-# INLINEABLE step3D #-}
+
+-- | Generate a Gaussian-distributed step in spherical coordinates
+stepSpherical :: Monad m => Length -> RVarT m (Spherical Double)
+stepSpherical sigma = do
+    r <- normalT 0 sigma
+    theta <- uniformT (-pi) pi
+    x <- uniformT 0 1
+    let phi = acos (2*x - 1)
+    return $ Spherical r theta phi
+{-# INLINEABLE stepSpherical #-}
 
 unfold :: Monad m => m a -> Producer a m r
 unfold m = forever $ lift m >>= yield
+{-# INLINEABLE unfold #-}
 
+-- | Evolve a diffusive trajectory
 evolveDiffusion :: Monad m
                 => Length -> Producer (V3 Double) (RVarT m) r
 evolveDiffusion sigma = unfold (step3D sigma) >-> P.scan (^+^) zero id
 {-# INLINEABLE evolveDiffusion #-}
+
+--evolveSphereDiffusion :: Monad m => Length -> Length -> Producer (V3 Double) (RVarT m) r
+--evolveSphereDiffusion rMax sigma = unfold (stepSpherical sigma)
+--{-# INLINEABLE evolveSphereDiffusion #-}
 
 beamIntensity :: V3 Length -> V3 Length -> Double
 beamIntensity w x = exp (negate alpha)
@@ -98,6 +115,14 @@ evolveParticle boxSize sigma = do
           $ hoist lift (evolveUntilExit boxSize sigma x0) >-> toVector
     return $ V.reverse va V.++ vb
 {-# INLINEABLE evolveParticle #-}
+
+metropolisStep :: RVarT m a -> (a -> a -> Bool) -> a -> RVarT m a
+metropolisStep proposal accept x0 = do
+    x1 <- proposal
+    return $ if accept x0 x1
+               then x1
+               else x0
+{-# INLINEABLE metropolisStep #-}
 
 instance PrimMonad m => PrimMonad (RVarT m) where
     type PrimState (RVarT m) = PrimState m
