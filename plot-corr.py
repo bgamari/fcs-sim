@@ -7,12 +7,16 @@ import scipy.integrate
 import scipy.optimize
 
 corrs = []
-for fname in sorted(sys.argv[1:])[:-1]:
+fnames = sorted(sys.argv[1:])
+expectedLen = len(np.genfromtxt(fnames[0], names='tau,g', dtype=float, invalid_raise=False))
+for fname in fnames:
     print '%-20s\t' % fname,
     a = np.genfromtxt(fname, names='tau,g', dtype=float, invalid_raise=False)
-    a['tau'] *= 1e-9
-    if len(a) == 0:
+    if len(a) != expectedLen:
+        print 'wrong len'
         continue
+
+    a['tau'] *= 1e-9
     if True:
         # log space
         norm = a[0]['g']
