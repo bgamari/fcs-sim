@@ -103,8 +103,8 @@ main = do
     let taus :: VU.Vector Int
         taus = VU.fromList $ map round $ logSpace (minLag args) (maxLag args) (corrPts args)
     let sampleCorr' = sampleCorr (beamWidth args ^* boxSizeFactor args) (beamWidth args) (diffusivity args) (timeStep args) taus
-        sampleCorrs = Main.concurrently (asProducer $ const sampleCorr') (each $ replicate 1000 ())
-    runEffect $ Pipes.for (PP.zip (each [0..]) sampleCorrs) $ \(i,corr) -> do
+        sampleCorrs = Main.concurrently (asProducer $ const sampleCorr') (each $ replicate 10000 ())
+    runEffect $ Pipes.for (PP.zip (each [1000..]) sampleCorrs) $ \(i,corr) -> do
         liftIO $ print i
         liftIO $ writeFile ("out-"++show i) $ printCorr corr
 
