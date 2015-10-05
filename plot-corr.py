@@ -9,8 +9,10 @@ import scipy.optimize
 corrs = []
 for fname in sorted(sys.argv[1:])[:-1]:
     print '%-20s\t' % fname,
-    a = np.genfromtxt(fname, names='tau,g', dtype=None, invalid_raise=False)
+    a = np.genfromtxt(fname, names='tau,g', dtype=float, invalid_raise=False)
     a['tau'] *= 1e-9
+    if len(a) == 0:
+        continue
     if True:
         # log space
         norm = a[0]['g']
