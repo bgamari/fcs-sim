@@ -168,7 +168,7 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
                <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
                <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
                <*> option auto ( short 't' <> long "time-step" <> value 1000 <> help "simulation timestep")
-               <*> option auto ( short 'n' <> long "corr-pts" <> value 1000 <> help "number of points to sample of correlation function")
+               <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
                <*> option auto ( short 'l' <> long "min-lag" <> value 1 <> help "minimum lag in seconds")
                <*> option auto ( short 'L' <> long "max-lag" <> value 10000000 <> help "minimum lag in seconds")
 
@@ -176,10 +176,14 @@ runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let boxSize = 20 *^ beamWidth
         sigma = msd diffusivity timeStep
-        taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) 2000
-    let corr :: RVarT IO [(Int, Log Double)]
+        taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) corrPts
+
+    let walk :: RVarT IO (VU.Vector (Point V3 Length))
+        walk = walkInsideBox boxSize sigma
+
+        corr :: RVarT IO [(Int, Log Double)]
         corr = do
-            int <- VU.map (beamIntensity beamWidth) <$> walkInsideBox boxSize sigma
+            int <- VU.map (beamIntensity beamWidth) <$> walk
             return $ map (\tau -> (tau, correlate tau int)) taus
 
     forM_ [0..] $ \i -> do
