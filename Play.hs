@@ -9,6 +9,8 @@ import Data.Functor.Identity
 import Linear
 import Linear.Affine
 import Numeric.Log
+import Data.Random
+
 import qualified Data.Vector.Fusion.Stream.Monadic as VSM
 import qualified Data.Vector.Fusion.Bundle.Monadic as VBM
 import qualified Data.Vector.Fusion.Bundle.Size as Size
@@ -16,14 +18,16 @@ import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
+
 import Control.Lens
 import System.Random.MWC
 import Control.Monad.Primitive
 import Control.Monad.Trans.Class
-import Options.Applicative
 import GHC.Conc (getNumCapabilities, forkIO)
+import Options.Applicative
+import Test.QuickCheck
 
-import Data.Random
+import Reflection
 
 data Spherical a = Spherical { _r      :: !a    -- ^ radial
                              , _theta  :: !a    -- ^ inclination
@@ -92,39 +96,7 @@ wanderInsideSphere radius sigma = VSM.unfoldrM step
       let x' = reflectiveStep radius x dx
       return $ Just (x', x')
 
--- | @reflectiveStep r x0 dx@ is the result of a step from point @x0@
--- to @x0 + dx@ inside a reflective sphere of radius @r@.
-reflectiveStep :: RealFloat a => a -> Point V3 a -> V3 a -> Point V3 a
-reflectiveStep radius x0 dx
-  | abs alpha < 1 =
-    let P x' = x0 .+^ alpha *^ dx
-        dx' = (1 - alpha) *^ dx
-    in P x' .+^ reflect x' dx'
-  | otherwise     = x0 .+^ dx
-  where
-    (_, alpha) = sphereIntercept radius x0 dx
-
--- | @reflect l v@ is the vector @v@ reflected across the plane normal to @l@.
-reflect :: (Metric f, RealFrac a) => f a -> f a -> f a
-reflect l v = 2 * (l `dot` v) / quadrance l *^ l ^-^ v
-
--- | @sphereIntercept r x0 dx@ is the values @alpha@ where
--- @x0 + alpha * dx@ falls on the surface of a sphere of radius @r@
--- centered at the origin. The first element is negative.
-sphereIntercept :: RealFloat a => a -> Point V3 a -> V3 a -> (a, a)
-sphereIntercept radius (P x0) dir =
-    let [a, b] = quadratic (quadrance dir) (2 * x0 `dot` dir) (quadrance x0 - radius^2)
-    in (a, b)
-
--- | Real solutions to a quadratic equation
-quadratic :: RealFloat a => a -> a -> a -> [a]
-quadratic a b c
-  | discrim < 0 = []
-  | otherwise   = [(-b + s) / 2 / a, (-b - s) / 2 / a]
-  where
-    discrim = b^2 - 4 * a * c
-    s = sqrt discrim
-
+-- | Gaussian beam intensity
 beamIntensity :: BeamSize -> Point V3 Length -> Log Double
 beamIntensity w (P x) = Exp (negate alpha / 2)
   where
@@ -179,7 +151,15 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) corrPts
 
     let walk :: RVarT IO (VU.Vector (Point V3 Length))
-        walk = walkInsideBox boxSize sigma
+        --walk = walkInsideBox boxSize sigma
+        walk = do
+          w <- walkInsideBox boxSize sigma :: RVarT IO (VU.Vector (Point V3 Length))
+          let x :: VSM.Stream (RVarT IO) (Point V3 Length)
+              x = wanderInsideSphere 100 0.04 origin
+
+              w' :: VSM.Stream (RVarT IO) (Point V3 Length)
+              w' = VSM.zipWith (\(P a) (P b) -> P (a ^+^ b)) (VBM.elements $ VBM.fromVector w) x
+          streamToVector w'
 
         corr :: RVarT IO [(Int, Log Double)]
         corr = do
@@ -193,12 +173,19 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         writeFile out
           $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (ln y)) v
 
+tests = [ reflectiveStepIsInside ]
+
 main :: IO ()
 main = do
+    quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
     forM_ [1..ncaps-1] $ \i -> forkIO $ runSim ("out/"++zeroPadded 2 i++"-") args
     runSim ("out/"++zeroPadded 2 0++"-") args
+    --withSystemRandom $ \mwc -> do
+    --    let x :: RVarT IO (VU.Vector (Point V3 Double))
+    --        x = streamToVector $ VSM.take 1000000 $ wanderInsideSphere 5 1 origin
+    --    mapM_ (\(P (V3 x y z)) -> putStrLn $ show x++"\t"++show y++"\t"++show z) . VU.toList =<< runRVarT x mwc
     return ()
 
 -- | Render a number in zero-padded form
