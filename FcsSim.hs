@@ -77,9 +77,9 @@ evolveDiffusion sigma = unfold (step3D sigma) >-> P.scan (^+^) zero id
 --{-# INLINEABLE evolveSphereDiffusion #-}
 
 beamIntensity :: V3 Length -> V3 Length -> Double
-beamIntensity w x = exp (negate alpha)
+beamIntensity w x = exp (negate alpha / 2)
   where
-    f wx xx = xx^2 / (2*wx^2)
+    f wx xx = xx^2 / wx^2
     alpha = F.sum $ f <$> w <*> x
 {-# INLINEABLE beamIntensity #-}
 
@@ -92,7 +92,7 @@ pointInBox = traverse (\s->uniformT (-s/2) (s/2))
 {-# INLINEABLE pointInBox #-}
 
 inBox :: BoxSize -> V3 Length -> Bool
-inBox boxSize x = F.all id $ (\s x->abs x < s) <$> boxSize <*> x
+inBox boxSize x = F.all id $ (\s x->abs x < (s/2)) <$> boxSize <*> x
 {-# INLINEABLE inBox #-}
 
 evolveUntilExit :: Monad m

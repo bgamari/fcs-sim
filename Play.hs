@@ -43,6 +43,16 @@ sphericalV3 = iso from to
         phi = atan2 y x
 {-# INLINE sphericalV3 #-}
 
+-- | Generate a Gaussian-distributed step in spherical coordinates
+stepSpherical :: Monad m => Length -> RVarT m (Spherical Double)
+stepSpherical sigma = do
+    r <- normalT 0 sigma
+    theta <- uniformT (-pi) pi
+    x <- uniformT 0 1
+    let phi = acos (2*x - 1)
+    return $ Spherical r theta phi
+{-# INLINEABLE stepSpherical #-}
+
 type Diffusivity = Double   -- ^ nm^2 / ns
 type Time = Double          -- ^ nanoseconds
 type Length = Double        -- ^ nanometers
@@ -59,16 +69,6 @@ step3D sigma = do
     dist = uniformT (-1) 1
 {-# INLINEABLE step3D #-}
 
--- | Generate a Gaussian-distributed step in spherical coordinates
-stepSpherical :: Monad m => Length -> RVarT m (Spherical Double)
-stepSpherical sigma = do
-    r <- normalT 0 sigma
-    theta <- uniformT (-pi) pi
-    x <- uniformT 0 1
-    let phi = acos (2*x - 1)
-    return $ Spherical r theta phi
-{-# INLINEABLE stepSpherical #-}
-
 randomWalk :: Monad m => Length -> Point V3 Double -> VSM.Stream (RVarT m) (Point V3 Double)
 randomWalk sigma = VSM.unfoldrM step
   where
@@ -78,9 +78,9 @@ randomWalk sigma = VSM.unfoldrM step
       return $ Just (x', x')
 
 beamIntensity :: BeamSize -> Point V3 Length -> Log Double
-beamIntensity w (P x) = Exp (negate alpha)
+beamIntensity w (P x) = Exp (negate alpha / 2)
   where
-    f wx xx = xx^2 / (2*wx^2)
+    f wx xx = xx^2 / wx^2
     alpha = Data.Foldable.sum $ f <$> w <*> x
 {-# INLINEABLE beamIntensity #-}
 
@@ -90,12 +90,20 @@ streamToVector s = do
     VG.unsafeFreeze mv
 
 insideBox :: BoxSize -> Point V3 Length -> Bool
-insideBox boxSize (P x) = Data.Foldable.all id $ (\s x->abs x < s) <$> boxSize <*> x
+insideBox boxSize (P x) = Data.Foldable.all id $ (\s x->abs x < (s/2)) <$> boxSize <*> x
 {-# INLINEABLE insideBox #-}
 
 instance PrimMonad m => PrimMonad (RVarT m) where
   type PrimState (RVarT m) = PrimState m
   primitive f = lift $ primitive f
+
+type Viscosity = Double
+
+stokesEinstein :: Length   -- ^ radius
+               -> Double   -- ^ viscosity
+               -> Diffusivity
+stokesEinstein r eta = boltzmann * 300 / 6 / pi / eta / r
+  where boltzmann = 1.38e-23 -- kg * nm^2 / ns^2 / K
 
 main :: IO ()
 main = withSystemRandom $ \mwc -> do
@@ -114,12 +122,18 @@ main = withSystemRandom $ \mwc -> do
     forM_ [0..] $ \i -> do
         print i
         v <- runRVarT corr mwc :: IO [(Int, Log Double)]
-        writeFile ("out/"++show i) $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (ln y)) v
+        writeFile ("out/"++zeroPadded 4 i) $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (ln y)) v
 
     --v <- runRVarT (walkInsideBox boxSize sigma :: RVarT IO (VU.Vector (Point V3 Double))) mwc
     --putStrLn $ unlines $ map (show . beamIntensity beamWidth) $ VG.toList v
     --putStrLn $ unlines $ map (foldMap (flip shows " ")) $ VG.toList v
     return ()
+
+-- | Render a number in zero-padded form
+zeroPadded :: Int -> Int -> String
+zeroPadded width n =
+    let s = show n
+    in replicate (width - length s) '0' ++ s
 
 -- | Mean-squared displacement
 msd :: Diffusivity -> Time -> Length
@@ -127,7 +141,7 @@ msd d dt = 6 * d * dt
 {-# INLINEABLE msd #-}
 
 pointInBox :: (Monad m) => BoxSize -> RVarT m (Point V3 Length)
-pointInBox boxSize = P <$> traverse (\x -> uniformT (negate x) x) boxSize
+pointInBox boxSize = P <$> traverse (\x -> uniformT (-x/2) (x/2)) boxSize
 
 walkInsideBox :: (VG.Vector v (Point V3 Length), PrimMonad m)
               => BoxSize -> Length -> RVarT m (v (Point V3 Length))
