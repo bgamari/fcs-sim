@@ -81,6 +81,50 @@ randomWalk sigma = VSM.unfoldrM step
       let x' = x .+^ dx
       return $ Just (x', x')
 
+-- | Produce a random walk inside a sphere with reflective boundary conditions
+wanderInsideSphere :: (Monad m)
+                   => Length -> Length -> Point V3 Double
+                   -> VSM.Stream (RVarT m) (Point V3 Length)
+wanderInsideSphere radius sigma = VSM.unfoldrM step
+  where
+    step !x = do
+      dx <- step3D sigma
+      let x' = reflectiveStep radius x dx
+      return $ Just (x', x')
+
+-- | @reflectiveStep r x0 dx@ is the result of a step from point @x0@
+-- to @x0 + dx@ inside a reflective sphere of radius @r@.
+reflectiveStep :: RealFloat a => a -> Point V3 a -> V3 a -> Point V3 a
+reflectiveStep radius x0 dx
+  | abs alpha < 1 =
+    let P x' = x0 .+^ alpha *^ dx
+        dx' = (1 - alpha) *^ dx
+    in P x' .+^ reflect x' dx'
+  | otherwise     = x0 .+^ dx
+  where
+    (_, alpha) = sphereIntercept radius x0 dx
+
+-- | @reflect l v@ is the vector @v@ reflected across the plane normal to @l@.
+reflect :: (Metric f, RealFrac a) => f a -> f a -> f a
+reflect l v = 2 * (l `dot` v) / quadrance l *^ l ^-^ v
+
+-- | @sphereIntercept r x0 dx@ is the values @alpha@ where
+-- @x0 + alpha * dx@ falls on the surface of a sphere of radius @r@
+-- centered at the origin. The first element is negative.
+sphereIntercept :: RealFloat a => a -> Point V3 a -> V3 a -> (a, a)
+sphereIntercept radius (P x0) dir =
+    let [a, b] = quadratic (quadrance dir) (2 * x0 `dot` dir) (quadrance x0 - radius^2)
+    in (a, b)
+
+-- | Real solutions to a quadratic equation
+quadratic :: RealFloat a => a -> a -> a -> [a]
+quadratic a b c
+  | discrim < 0 = []
+  | otherwise   = [(-b + s) / 2 / a, (-b - s) / 2 / a]
+  where
+    discrim = b^2 - 4 * a * c
+    s = sqrt discrim
+
 beamIntensity :: BeamSize -> Point V3 Length -> Log Double
 beamIntensity w (P x) = Exp (negate alpha / 2)
   where
@@ -167,6 +211,7 @@ msd d dt = 6 * d * dt
 pointInBox :: (Monad m) => BoxSize -> RVarT m (Point V3 Length)
 pointInBox boxSize = P <$> traverse (\x -> uniformT (-x/2) (x/2)) boxSize
 
+-- | Produce a random walk inside a simulation box until the path leaves
 walkInsideBox :: (VG.Vector v (Point V3 Length), PrimMonad m)
               => BoxSize -> Length -> RVarT m (v (Point V3 Length))
 walkInsideBox boxSize sigma = do
