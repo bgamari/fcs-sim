@@ -1,6 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE RecordWildCards #-}
 
 import Data.Foldable
 import Data.List (nub)
@@ -19,6 +20,8 @@ import Control.Lens
 import System.Random.MWC
 import Control.Monad.Primitive
 import Control.Monad.Trans.Class
+import Options.Applicative
+import GHC.Conc (getNumCapabilities, forkIO)
 
 import Data.Random
 
@@ -53,6 +56,7 @@ stepSpherical sigma = do
     return $ Spherical r theta phi
 {-# INLINEABLE stepSpherical #-}
 
+type Viscosity = Double     -- ^ centipoise
 type Diffusivity = Double   -- ^ nm^2 / ns
 type Time = Double          -- ^ nanoseconds
 type Length = Double        -- ^ nanometers
@@ -97,36 +101,56 @@ instance PrimMonad m => PrimMonad (RVarT m) where
   type PrimState (RVarT m) = PrimState m
   primitive f = lift $ primitive f
 
-type Viscosity = Double
-
 stokesEinstein :: Length   -- ^ radius
-               -> Double   -- ^ viscosity
+               -> Viscosity
                -> Diffusivity
 stokesEinstein r eta = boltzmann * 300 / 6 / pi / eta / r
-  where boltzmann = 1.38e-23 -- kg * nm^2 / ns^2 / K
+  where boltzmann = 1.38e-23 -- kg * m^2 / s^2 / K
 
-main :: IO ()
-main = withSystemRandom $ \mwc -> do
-    let beamWidth = V3 400 400 1000
-        boxSize = 20 *^ beamWidth
-        timeStep = 10 -- ns
-        diffusivity = 6.5^2 / 6 / 10
+waterVisc :: Viscosity
+waterVisc = 1 -- kg * m / s
+
+data Options = Opts { beamWidth     :: V3 Double
+                    , diffusivity   :: Double
+                    , boxSizeFactor :: Double
+                    , timeStep      :: Double
+                    , corrPts       :: Int
+                    , minLag        :: Double
+                    , maxLag        :: Double
+                    }
+
+options :: Parser Options
+options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
+               <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
+               <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
+               <*> option auto ( short 't' <> long "time-step" <> value 1000 <> help "simulation timestep")
+               <*> option auto ( short 'n' <> long "corr-pts" <> value 1000 <> help "number of points to sample of correlation function")
+               <*> option auto ( short 'l' <> long "min-lag" <> value 1 <> help "minimum lag in seconds")
+               <*> option auto ( short 'L' <> long "max-lag" <> value 10000000 <> help "minimum lag in seconds")
+
+runSim :: FilePath -> Options -> IO ()
+runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
+    let boxSize = 20 *^ beamWidth
         sigma = msd diffusivity timeStep
-        taus = nub $ map round $ logSpace 1 1e9 2000
-
+        taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) 2000
     let corr :: RVarT IO [(Int, Log Double)]
         corr = do
             int <- VU.map (beamIntensity beamWidth) <$> walkInsideBox boxSize sigma
             return $ map (\tau -> (tau, correlate tau int)) taus
 
     forM_ [0..] $ \i -> do
-        print i
+        let out = outPath++zeroPadded 4 i
+        putStrLn out
         v <- runRVarT corr mwc :: IO [(Int, Log Double)]
-        writeFile ("out/"++zeroPadded 4 i) $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (ln y)) v
+        writeFile out
+          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (ln y)) v
 
-    --v <- runRVarT (walkInsideBox boxSize sigma :: RVarT IO (VU.Vector (Point V3 Double))) mwc
-    --putStrLn $ unlines $ map (show . beamIntensity beamWidth) $ VG.toList v
-    --putStrLn $ unlines $ map (foldMap (flip shows " ")) $ VG.toList v
+main :: IO ()
+main = do
+    args <- execParser $ info (helper <*> options) mempty
+    ncaps <- getNumCapabilities
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim ("out/"++zeroPadded 2 i++"-") args
+    runSim ("out/"++zeroPadded 2 0++"-") args
     return ()
 
 -- | Render a number in zero-padded form
