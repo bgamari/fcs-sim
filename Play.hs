@@ -169,8 +169,8 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
                <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
                <*> option auto ( short 't' <> long "time-step" <> value 1000 <> help "simulation timestep")
                <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
-               <*> option auto ( short 'l' <> long "min-lag" <> value 1 <> help "minimum lag in seconds")
-               <*> option auto ( short 'L' <> long "max-lag" <> value 10000000 <> help "minimum lag in seconds")
+               <*> option auto ( short 'l' <> long "min-lag" <> value 1000 <> help "minimum lag in nanoseconds")
+               <*> option auto ( short 'L' <> long "max-lag" <> value 1e9 <> help "minimum lag in nanoseconds")
 
 runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
