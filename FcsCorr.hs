@@ -9,6 +9,7 @@ import Data.Random
 import Data.Functor.Identity
 import Data.Traversable as T
 import Data.Foldable as F
+import Data.Semigroup hiding (option)
 import Linear
 import Control.Monad
 import System.Random.MWC hiding (uniform)
