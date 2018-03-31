@@ -2,22 +2,27 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE TypeApplications #-}
 
+import Control.Monad
 import Data.Foldable
+import Data.Semigroup ((<>), Sum(..))
 import Data.List (nub)
 import Data.Functor.Identity
 import Linear
 import Linear.Affine
 import Numeric.Log
 import Data.Random
+import qualified Streaming as S
+import qualified Streaming.Prelude as S
+import Streaming (Of, Stream)
 
-import qualified Data.Vector.Fusion.Stream.Monadic as VSM
-import qualified Data.Vector.Fusion.Bundle.Monadic as VBM
-import qualified Data.Vector.Fusion.Bundle.Size as Size
 import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
+import qualified Data.Vector as V
 
 import Control.Lens
 import System.Random.MWC
@@ -72,29 +77,59 @@ step3D :: Monad m => Length -> RVarT m (V3 Double)
 step3D sigma = do
     dir <- V3 <$> dist <*> dist <*> dist
     r <- normalT 0 sigma
-    return $ r *^ normalize dir
+    return $! r *^ normalize dir
   where
     dist = uniformT (-1) 1
 {-# INLINEABLE step3D #-}
 
-randomWalk :: Monad m => Length -> Point V3 Double -> VSM.Stream (RVarT m) (Point V3 Double)
-randomWalk sigma = VSM.unfoldrM step
-  where
-    step !x = do
-      dx <- step3D sigma
-      let x' = x .+^ dx
-      return $ Just (x', x')
+newtype Propagator m a = Propagator (a -> m a)
+
+propagate :: Monad m => Propagator m a -> a -> Stream (Of a) m r
+propagate (Propagator f) s0 = S.iterateM f (return s0)
+
+propMany :: (Monad m, VG.Vector v a)
+         => Propagator m a -> Propagator m (v a)
+propMany (Propagator f) = Propagator (VG.mapM f)
+
+randomWalkP :: Monad m => Length -> Propagator (RVarT m) (Point V3 Double)
+randomWalkP sigma = Propagator $ \x -> do
+    dx <- step3D sigma
+    return $! x .+^ dx
+
+-- | Draw a point from a given box.
+pointInBox :: (Monad m) => BoxSize -> RVarT m (Point V3 Length)
+pointInBox boxSize = P <$> traverse (\x -> uniformT (-x/2) (x/2)) boxSize
+
+-- | Produce a random walk inside a simulation box until the path leaves
+walkInsideBox :: PrimMonad m
+              => BoxSize -> Length
+              -> Stream (Of (Point V3 Length)) (RVarT m) ()
+walkInsideBox boxSize sigma = do
+    x0 <- lift $ pointInBox boxSize
+    before <- lift $ streamToVector $ S.takeWhile (insideBox boxSize)
+              $ propagate (randomWalkP sigma) x0
+    VU.mapM_ S.yield $ VU.reverse before
+    S.takeWhile (insideBox boxSize) $ propagate (randomWalkP sigma) x0
+
+wanderInsideSphereP :: (Monad m)
+                    => Length -> Length
+                    -> Propagator (RVarT m) (Point V3 Length)
+wanderInsideSphereP radius sigma = Propagator $ \x -> do
+    dx <- step3D sigma
+    return $! reflectiveSphereStep radius x dx
 
 -- | Produce a random walk inside a sphere with reflective boundary conditions
 wanderInsideSphere :: (Monad m)
                    => Length -> Length -> Point V3 Double
-                   -> VSM.Stream (RVarT m) (Point V3 Length)
-wanderInsideSphere radius sigma = VSM.unfoldrM step
-  where
-    step !x = do
-      dx <- step3D sigma
-      let x' = reflectiveStep radius x dx
-      return $ Just (x', x')
+                   -> Stream (Of (Point V3 Length)) (RVarT m) r
+wanderInsideSphere radius sigma = propagate (wanderInsideSphereP radius sigma)
+
+wanderInsideReflectiveCubeP :: Monad m
+                            => BoxSize -> Length
+                            -> Propagator (RVarT m) (Point V3 Length)
+wanderInsideReflectiveCubeP boxSize sigma = Propagator $ \x -> do
+    dx <- step3D sigma
+    return $! reflectiveCubeStep boxSize x dx
 
 -- | Gaussian beam intensity
 beamIntensity :: BeamSize -> Point V3 Length -> Log Double
@@ -104,13 +139,13 @@ beamIntensity w (P x) = Exp (negate alpha / 2)
     alpha = Data.Foldable.sum $ f <$> w <*> x
 {-# INLINEABLE beamIntensity #-}
 
-streamToVector :: (VG.Vector v a, PrimMonad m) => VSM.Stream m a -> m (v a)
-streamToVector s = do
-    mv <- VGM.munstream $ VBM.fromStream s Size.Unknown
-    VG.unsafeFreeze mv
+streamToVector :: forall v a m r. (VG.Vector v a, PrimMonad m)
+               => Stream (Of a) m r -> m (v a)
+streamToVector = VG.unfoldrM f
+  where f s = either (const Nothing) Just <$> S.next s
 
 insideBox :: BoxSize -> Point V3 Length -> Bool
-insideBox boxSize (P x) = Data.Foldable.all id $ (\s x->abs x < (s/2)) <$> boxSize <*> x
+insideBox boxSize (P x) = Data.Foldable.and $ (\s x->abs x < (s/2)) <$> boxSize <*> x
 {-# INLINEABLE insideBox #-}
 
 instance PrimMonad m => PrimMonad (RVarT m) where
@@ -147,23 +182,31 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
 runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let boxSize = 20 *^ beamWidth
-        sigma = msd diffusivity timeStep
+        dropletDiffusivity = 5.6e-3
+        molDiffusivity = 0.122
+        sigma = msd dropletDiffusivity timeStep
         taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) corrPts
 
-    let walk :: RVarT IO (VU.Vector (Point V3 Length))
-        --walk = walkInsideBox boxSize sigma
-        walk = do
-          w <- walkInsideBox boxSize sigma :: RVarT IO (VU.Vector (Point V3 Length))
-          let x :: VSM.Stream (RVarT IO) (Point V3 Length)
-              x = wanderInsideSphere 100 0.04 origin
+    let walk :: Stream (Of (Log Double)) (RVarT IO) ()
+        walk
+          | True = do
+                xs0 <- lift $ VU.replicateM 100 $ pointInBox boxSize
+                let prop = wanderInsideReflectiveCubeP boxSize sigma
+                S.map (VU.sum . VU.map (beamIntensity beamWidth))
+                    $ S.take (10*1000*1000)
+                    $ propagate (propMany prop) xs0
+          | otherwise = do
+            let w = walkInsideBox boxSize sigma :: Stream (Of (Point V3 Length)) (RVarT IO) ()
+            let x :: Stream (Of (Point V3 Length)) (RVarT IO) r
+                x = wanderInsideSphere 100 (msd molDiffusivity timeStep) origin
 
-              w' :: VSM.Stream (RVarT IO) (Point V3 Length)
-              w' = VSM.zipWith (\(P a) (P b) -> P (a ^+^ b)) (VBM.elements $ VBM.fromVector w) x
-          streamToVector w'
+                w' :: Stream (Of (Point V3 Length)) (RVarT IO) ()
+                w' = S.zipWith (\(P a) (P b) -> P (a ^+^ b)) w x
+            S.map (beamIntensity beamWidth) w'
 
         corr :: RVarT IO [(Int, Log Double)]
         corr = do
-            int <- VU.map (beamIntensity beamWidth) <$> walk
+            int <- streamToVector @VU.Vector walk
             return $ map (\tau -> (tau, correlate tau int)) taus
 
     forM_ [0..] $ \i -> do
@@ -171,21 +214,25 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         putStrLn out
         v <- runRVarT corr mwc :: IO [(Int, Log Double)]
         writeFile out
-          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (ln y)) v
+          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (realToFrac y :: Double)) v
 
-tests = [ reflectiveStepIsInside ]
+tests = [ reflectiveSphereStepIsInside ]
 
 main :: IO ()
 main = do
-    quickCheck reflectiveStepIsInside
+    --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
+
+    when True $ withSystemRandom $ \mwc -> do
+        let x :: RVarT IO (VU.Vector (Point V3 Double))
+            x = streamToVector $ S.take 1000000 $ wanderInsideSphere 1e9 1 origin
+        traj <- runRVarT x mwc
+        writeFile "traj" $ unlines $ map (\(P (V3 x y z)) -> unwords [show x, show y, show z]) (VU.toList traj)
+        writeFile "intensity" $ unlines $ map (show . beamIntensity (beamWidth args)) (VU.toList traj)
+
     forM_ [1..ncaps-1] $ \i -> forkIO $ runSim ("out/"++zeroPadded 2 i++"-") args
     runSim ("out/"++zeroPadded 2 0++"-") args
-    --withSystemRandom $ \mwc -> do
-    --    let x :: RVarT IO (VU.Vector (Point V3 Double))
-    --        x = streamToVector $ VSM.take 1000000 $ wanderInsideSphere 5 1 origin
-    --    mapM_ (\(P (V3 x y z)) -> putStrLn $ show x++"\t"++show y++"\t"++show z) . VU.toList =<< runRVarT x mwc
     return ()
 
 -- | Render a number in zero-padded form
@@ -194,23 +241,11 @@ zeroPadded width n =
     let s = show n
     in replicate (width - length s) '0' ++ s
 
--- | Mean-squared displacement
+-- | Mean-squared displacement of a particle with the given diffusivity which
+-- diffused for the given time.
 msd :: Diffusivity -> Time -> Length
 msd d dt = 6 * d * dt
 {-# INLINEABLE msd #-}
-
-pointInBox :: (Monad m) => BoxSize -> RVarT m (Point V3 Length)
-pointInBox boxSize = P <$> traverse (\x -> uniformT (-x/2) (x/2)) boxSize
-
--- | Produce a random walk inside a simulation box until the path leaves
-walkInsideBox :: (VG.Vector v (Point V3 Length), PrimMonad m)
-              => BoxSize -> Length -> RVarT m (v (Point V3 Length))
-walkInsideBox boxSize sigma = do
-    x0 <- pointInBox boxSize
-    let walk = VSM.takeWhile (insideBox boxSize) $ randomWalk sigma x0
-    before <- streamToVector walk
-    after <- streamToVector walk
-    return $ VG.reverse before VG.++ after
 
 -- | Compute the correlation function with zero boundaries at the given lag
 correlate :: (VG.Vector v a, RealFrac a) => Int -> v a -> a
