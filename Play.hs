@@ -212,9 +212,9 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
                <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
                <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
                <*> option auto ( short 'l' <> long "min-lag" <> value 1000 <> help "minimum lag in nanoseconds")
-               <*> option auto ( short 'L' <> long "max-lag" <> value 1e9 <> help "minimum lag in nanoseconds")
+               <*> option auto ( short 'L' <> long "max-lag" <> value 2e9 <> help "minimum lag in nanoseconds")
 
-data Mode = ModeDroplet | ModeWalkInCube | ModeWhatIsThis
+data Mode = ModeDroplet | ModeWalkInCube
 
 decimate :: Monad m => Int -> Stream (Of a) m r -> Stream (Of a) m r
 decimate n = S.catMaybes . S.mapped (S.head) . S.chunksOf n
@@ -233,6 +233,10 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         decimation :: Int
         decimation = ceiling $ minLag / timeStep
 
+        steps :: Int
+        steps = ceiling $ 2 * maxLag / timeStep
+
+    putStrLn $ "Running for "++show steps++" steps"
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk = case ModeDroplet of
           ModeDroplet -> do
@@ -246,7 +250,6 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                                                           , stickingRadius = 48
                                                           , moleculeSigma = molSigma
                                                           }
-                    steps = 20*1000*1000
                 S.map (VG.sum . VG.map (beamIntensity beamWidth . absMolPosition))
                     $ decimate decimation
                     $ S.take steps
@@ -254,20 +257,12 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
           ModeWalkInCube -> do
                 xs0 <- lift $ VU.replicateM 10 $ pointInBox boxSize
                 let prop = wanderInsideReflectiveCubeP boxSize dropletSigma
-                    steps = 10*1000*1000
                 --v <- lift $ propagateToVector 10000 (propMany prop) xs0
                 --lift $ lift $ writeTrajectory "out.1" $ V.toList $ V.map VU.head $ v
                 S.map (VU.sum . VU.map (beamIntensity beamWidth))
                     $ decimate decimation
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
-
-          ModeWhatIsThis -> do
-            let w = walkInsideBox boxSize dropletSigma :: Stream (Of (Point V3 Length)) (RVarT IO) ()
-            S.map (beamIntensity beamWidth)
-                $ decimate decimation
-                $ S.zipWith (\(P a) (P b) -> P (a ^+^ b)) w
-                $ propagateToStream (wanderInsideSphereP 100 (msd molDiffusivity timeStep)) origin
 
         corr :: RVarT IO [(Int, Log Double)]
         corr = do
@@ -279,7 +274,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         putStrLn out
         v <- runRVarT corr mwc :: IO [(Int, Log Double)]
         writeFile out
-          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep) ++ "\t" ++ show (realToFrac y :: Double)) v
+          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double)) v
 
 tests = [ reflectiveSphereStepIsInside ]
 
