@@ -235,7 +235,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                                                           , stickingRadius = 48
                                                           , moleculeSigma = molSigma
                                                           }
-                    steps = 10*1000*1000
+                    steps = 100*1000*1000
                 S.map (V.sum . V.map (beamIntensity beamWidth . absMolPosition))
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
