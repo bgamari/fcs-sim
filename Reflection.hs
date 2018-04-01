@@ -14,6 +14,7 @@ import Test.QuickCheck
 reflectiveSphereStep :: (Show a, Epsilon a, RealFloat a)
                      => a -> Point V3 a -> V3 a -> Point V3 a
 reflectiveSphereStep radius x0 dx
+    -- TODO: Handle case of step size being multiple of radius
   | nearZero (quadrance dx) = x0
   | abs alpha < 1 =
     let P x' = x0 .+^ alpha *^ dx
@@ -64,11 +65,11 @@ reflect n v = v ^-^ 2 * (v `dot` n) / quadrance n *^ n
 -- | @sphereIntercept r x0 dx@ is the values @alpha@ where
 -- @x0 + alpha * dx@ falls on the surface of a sphere of radius @r@
 -- centered at the origin. The first element is negative.
-sphereIntercept :: RealFloat a => a -> Point V3 a -> V3 a -> (a, a)
+sphereIntercept :: Show a => RealFloat a => a -> Point V3 a -> V3 a -> (a, a)
 sphereIntercept radius (P x0) dir =
     case quadratic (quadrance dir) (2 * x0 `dot` dir) (quadrance x0 - radius^2) of
       TwoSolns a b -> (a, b)
-      NoSoln       -> error "sphereIntercept"
+      NoSoln       -> error $ show ("sphereIntercept", x0, radius, dir)
 {-# INLINEABLE sphereIntercept #-}
 
 data QuadraticSoln a = NoSoln | TwoSolns a a

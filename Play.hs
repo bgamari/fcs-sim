@@ -1,3 +1,4 @@
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
@@ -26,6 +27,7 @@ import qualified Data.Vector as V
 
 import Control.Lens
 import System.Random.MWC
+import Data.Random.Distribution.Bernoulli
 import Control.Monad.Primitive
 import Control.Monad.Trans.Class
 import GHC.Conc (getNumCapabilities, forkIO)
@@ -129,6 +131,40 @@ wanderInsideReflectiveCubeP boxSize sigma = Propagator $ \x -> do
     dx <- step3D sigma
     return $! reflectiveCubeStep boxSize x dx
 
+data Droplet = Droplet { molPosition :: !(Point V3 Length)
+                       , dropletPosition :: !(Point V3 Length)
+                       , bound :: !Bool
+                       }
+
+absMolPosition :: Droplet -> Point V3 Length
+absMolPosition d = molPosition d .+^ unP (dropletPosition d)
+
+data DropletParams = DropletParams { bindingProb    :: !Double   -- ^ binding probability when in sticky region
+                                   , unbindingProb  :: !Double   -- ^ unbinding probability
+                                   , dropletSigma   :: !Double   -- ^ droplet MSD
+                                   , dropletRadius  :: !Double   -- ^ droplet radius
+                                   , stickingRadius :: !Double   -- ^ sticking region
+                                   , moleculeSigma  :: !Double   -- ^ molecule MSD
+                                   }
+
+dropletP :: Monad m
+         => BoxSize
+         -> DropletParams
+         -> Propagator (RVarT m) Droplet
+dropletP boxSize DropletParams{..} = Propagator $ \x -> do
+    dxDroplet <- step3D dropletSigma
+    molPosition' <- case bound x of
+                      False -> do dx <- step3D moleculeSigma
+                                  return $! reflectiveSphereStep dropletRadius (molPosition x) dx
+                      True  -> return $! molPosition x
+    stuck <- if | bound x -> not <$> bernoulliT unbindingProb
+                | molPosition' `distance` origin > stickingRadius -> bernoulliT bindingProb
+                | otherwise -> return False
+    return $! Droplet { molPosition     = molPosition'
+                      , dropletPosition = reflectiveCubeStep boxSize (dropletPosition x) dxDroplet
+                      , bound           = stuck
+                      }
+
 -- | Gaussian beam intensity
 beamIntensity :: BeamSize -> Point V3 Length -> Log Double
 beamIntensity w (P x) = Exp (negate alpha / 2)
@@ -170,32 +206,51 @@ options :: Parser Options
 options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
                <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
                <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
-               <*> option auto ( short 't' <> long "time-step" <> value 1000 <> help "simulation timestep")
+               <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
                <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
                <*> option auto ( short 'l' <> long "min-lag" <> value 1000 <> help "minimum lag in nanoseconds")
                <*> option auto ( short 'L' <> long "max-lag" <> value 1e9 <> help "minimum lag in nanoseconds")
 
+data Mode = ModeDroplet | ModeWalkInCube | ModeWhatIsThis
+
 runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let boxSize = 20 *^ beamWidth
-        dropletDiffusivity = 5.6e-3
-        molDiffusivity = 0.122
-        sigma = msd dropletDiffusivity timeStep
+        dropletDiffusivity = 5.6e-3 -- nm^2/ns
+        molDiffusivity = 0.122 -- nm^2/ns
+        dropletSigma = sqrt $ msd dropletDiffusivity timeStep
+        molSigma = sqrt $ msd molDiffusivity timeStep
         taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) corrPts
 
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
-        walk
-          | True = do
+        walk = case ModeDroplet of
+          ModeDroplet -> do
+                xs0 <- lift $ V.replicateM 10 $ do
+                    dropletPosition <- pointInBox boxSize
+                    return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
+                let prop = dropletP boxSize DropletParams { bindingProb = 1e-5
+                                                          , unbindingProb = 1e-5
+                                                          , dropletSigma = dropletSigma
+                                                          , dropletRadius = 50
+                                                          , stickingRadius = 48
+                                                          , moleculeSigma = molSigma
+                                                          }
+                    steps = 10*1000*1000
+                S.map (V.sum . V.map (beamIntensity beamWidth . absMolPosition))
+                    $ S.take steps
+                    $ propagateToStream (propMany prop) xs0
+          ModeWalkInCube -> do
                 xs0 <- lift $ VU.replicateM 10 $ pointInBox boxSize
-                let prop = wanderInsideReflectiveCubeP boxSize sigma
+                let prop = wanderInsideReflectiveCubeP boxSize dropletSigma
                     steps = 10*1000*1000
                 --v <- lift $ propagateToVector 10000 (propMany prop) xs0
                 --lift $ lift $ writeTrajectory "out.1" $ V.toList $ V.map VU.head $ v
                 S.map (VU.sum . VU.map (beamIntensity beamWidth))
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
-          | otherwise = do
-            let w = walkInsideBox boxSize sigma :: Stream (Of (Point V3 Length)) (RVarT IO) ()
+
+          ModeWhatIsThis -> do
+            let w = walkInsideBox boxSize dropletSigma :: Stream (Of (Point V3 Length)) (RVarT IO) ()
             let x :: Stream (Of (Point V3 Length)) (RVarT IO) r
                 x = propagateToStream (wanderInsideSphereP 100 (msd molDiffusivity timeStep)) origin
 
