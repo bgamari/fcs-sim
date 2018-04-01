@@ -52,7 +52,6 @@ corrs = np.vstack(corrs)
 mu = np.mean(corrs['g'], axis=0)
 err = np.std(corrs['g'], axis=0)
 print(np.nonzero(np.logical_not(np.isfinite(corrs['g']))))
-print(mu)
 pl.errorbar(corrs['tau'][0], mu, yerr=err, c='k', ecolor='0.5', linewidth=1)
 
 def f(tau, g0, a, *ds):

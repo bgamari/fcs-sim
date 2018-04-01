@@ -23,7 +23,7 @@ reflectiveSphereStep radius x0 dx
   where
     (a, b) = sphereIntercept radius x0 dx
     alpha = max a b
-{-# INLINE reflectiveSphereStep #-}
+{-# INLINEABLE reflectiveSphereStep #-}
 
 instance Arbitrary a => Arbitrary (V3 a) where
   arbitrary = V3 <$> arbitrary <*> arbitrary <*> arbitrary
@@ -43,13 +43,18 @@ reflectiveSphereStepIsInside = property f
 reflectiveCubeStep :: RealFrac a => V3 a -> Point V3 a -> V3 a -> Point V3 a
 reflectiveCubeStep (V3 sx sy sz) x0 dx = go (x0 .+^ dx)
   where
-    go (P (V3 x y z)) = P (V3 (bound sx x) (bound sy y) (bound sz z))
+    go (P (V3 x y z)) =
+        let !x' = bound sx x
+            !y' = bound sy y
+            !z' = bound sz z
+        in P (V3 x' y' z')
 
     bound s x
       | x > s'         = s' - (x - s')
       | x < negate s'  = negate s' - (x - s')
       | otherwise      = x
-      where s' = s/2
+      where !s' = s/2
+{-# INLINEABLE reflectiveCubeStep #-}
 
 -- | @reflect n v@ is the vector @v@ reflected across the plane normal to @n@.
 reflect :: (Metric f, RealFrac a) => f a -> f a -> f a
@@ -64,7 +69,7 @@ sphereIntercept radius (P x0) dir =
     case quadratic (quadrance dir) (2 * x0 `dot` dir) (quadrance x0 - radius^2) of
       TwoSolns a b -> (a, b)
       NoSoln       -> error "sphereIntercept"
-{-# INLINE sphereIntercept #-}
+{-# INLINEABLE sphereIntercept #-}
 
 data QuadraticSoln a = NoSoln | TwoSolns a a
                      deriving (Functor, Foldable)
@@ -77,4 +82,4 @@ quadratic a b c
   where
     discrim = b^2 - 4 * a * c
     s = sqrt discrim
-{-# INLINE quadratic #-}
+{-# INLINEABLE quadratic #-}

@@ -61,7 +61,7 @@ stepSpherical sigma = do
     r <- normalT 0 sigma
     theta <- uniformT (-pi) pi
     x <- uniformT 0 1
-    let phi = acos (2*x - 1)
+    let !phi = acos (2*x - 1)
     return $ Spherical r theta phi
 {-# INLINEABLE stepSpherical #-}
 
@@ -84,8 +84,11 @@ step3D sigma = do
 
 newtype Propagator m a = Propagator (a -> m a)
 
-propagate :: Monad m => Propagator m a -> a -> Stream (Of a) m r
-propagate (Propagator f) s0 = S.iterateM f (return s0)
+propagateToStream :: Monad m => Propagator m a -> a -> Stream (Of a) m r
+propagateToStream (Propagator f) s0 = S.iterateM f (return $! s0)
+
+propagateToVector :: (VG.Vector v a, Monad m) => Int -> Propagator m a -> a -> m (v a)
+propagateToVector steps (Propagator f) s0 = VG.iterateNM steps f s0
 
 propMany :: (Monad m, VG.Vector v a)
          => Propagator m a -> Propagator m (v a)
@@ -107,22 +110,17 @@ walkInsideBox :: PrimMonad m
 walkInsideBox boxSize sigma = do
     x0 <- lift $ pointInBox boxSize
     before <- lift $ streamToVector $ S.takeWhile (insideBox boxSize)
-              $ propagate (randomWalkP sigma) x0
+              $ propagateToStream (randomWalkP sigma) x0
     VU.mapM_ S.yield $ VU.reverse before
-    S.takeWhile (insideBox boxSize) $ propagate (randomWalkP sigma) x0
+    S.takeWhile (insideBox boxSize) $ propagateToStream (randomWalkP sigma) x0
 
+-- | Produce a random walk inside a sphere with reflective boundary conditions
 wanderInsideSphereP :: (Monad m)
                     => Length -> Length
                     -> Propagator (RVarT m) (Point V3 Length)
 wanderInsideSphereP radius sigma = Propagator $ \x -> do
     dx <- step3D sigma
     return $! reflectiveSphereStep radius x dx
-
--- | Produce a random walk inside a sphere with reflective boundary conditions
-wanderInsideSphere :: (Monad m)
-                   => Length -> Length -> Point V3 Double
-                   -> Stream (Of (Point V3 Length)) (RVarT m) r
-wanderInsideSphere radius sigma = propagate (wanderInsideSphereP radius sigma)
 
 wanderInsideReflectiveCubeP :: Monad m
                             => BoxSize -> Length
@@ -143,6 +141,7 @@ streamToVector :: forall v a m r. (VG.Vector v a, PrimMonad m)
                => Stream (Of a) m r -> m (v a)
 streamToVector = VG.unfoldrM f
   where f s = either (const Nothing) Just <$> S.next s
+{-# INLINE streamToVector #-}
 
 insideBox :: BoxSize -> Point V3 Length -> Bool
 insideBox boxSize (P x) = Data.Foldable.and $ (\s x->abs x < (s/2)) <$> boxSize <*> x
@@ -157,9 +156,6 @@ stokesEinstein :: Length   -- ^ radius
                -> Diffusivity
 stokesEinstein r eta = boltzmann * 300 / 6 / pi / eta / r
   where boltzmann = 1.38e-23 -- kg * m^2 / s^2 / K
-
-waterVisc :: Viscosity
-waterVisc = 1 -- kg * m / s
 
 data Options = Opts { beamWidth     :: V3 Double
                     , diffusivity   :: Double
@@ -190,15 +186,18 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk
           | True = do
-                xs0 <- lift $ VU.replicateM 100 $ pointInBox boxSize
+                xs0 <- lift $ VU.replicateM 10 $ pointInBox boxSize
                 let prop = wanderInsideReflectiveCubeP boxSize sigma
+                    steps = 10*1000*1000
+                --v <- lift $ propagateToVector 10000 (propMany prop) xs0
+                --lift $ lift $ writeTrajectory "out.1" $ V.toList $ V.map VU.head $ v
                 S.map (VU.sum . VU.map (beamIntensity beamWidth))
-                    $ S.take (10*1000*1000)
-                    $ propagate (propMany prop) xs0
+                    $ S.take steps
+                    $ propagateToStream (propMany prop) xs0
           | otherwise = do
             let w = walkInsideBox boxSize sigma :: Stream (Of (Point V3 Length)) (RVarT IO) ()
             let x :: Stream (Of (Point V3 Length)) (RVarT IO) r
-                x = wanderInsideSphere 100 (msd molDiffusivity timeStep) origin
+                x = propagateToStream (wanderInsideSphereP 100 (msd molDiffusivity timeStep)) origin
 
                 w' :: Stream (Of (Point V3 Length)) (RVarT IO) ()
                 w' = S.zipWith (\(P a) (P b) -> P (a ^+^ b)) w x
@@ -218,15 +217,18 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
 
 tests = [ reflectiveSphereStepIsInside ]
 
+writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
+writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
+
 main :: IO ()
 main = do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
 
-    when True $ withSystemRandom $ \mwc -> do
+    when False $ withSystemRandom $ \mwc -> do
         let x :: RVarT IO (VU.Vector (Point V3 Double))
-            x = streamToVector $ S.take 1000000 $ wanderInsideSphere 1e9 1 origin
+            x = propagateToVector 100000 (wanderInsideSphereP 1e9 1) origin
         traj <- runRVarT x mwc
         writeFile "traj" $ unlines $ map (\(P (V3 x y z)) -> unwords [show x, show y, show z]) (VU.toList traj)
         writeFile "intensity" $ unlines $ map (show . beamIntensity (beamWidth args)) (VU.toList traj)
