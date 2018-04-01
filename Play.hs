@@ -216,6 +216,9 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
 
 data Mode = ModeDroplet | ModeWalkInCube | ModeWhatIsThis
 
+decimate :: Monad m => Int -> Stream (Of a) m r -> Stream (Of a) m r
+decimate n = S.catMaybes . S.mapped (S.head) . S.chunksOf n
+
 runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let boxSize = 20 *^ beamWidth
@@ -223,7 +226,12 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         molDiffusivity = 0.122 -- nm^2/ns
         dropletSigma = sqrt $ msd dropletDiffusivity timeStep
         molSigma = sqrt $ msd molDiffusivity timeStep
-        taus = nub $ map round $ logSpace (minLag / timeStep) (maxLag / timeStep) corrPts
+
+        taus :: [Int]
+        taus = nub $ map round $ logSpace (minLag / timeStep / realToFrac decimation) (maxLag / timeStep / realToFrac decimation) corrPts
+
+        decimation :: Int
+        decimation = ceiling $ minLag / timeStep
 
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk = case ModeDroplet of
@@ -240,6 +248,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                                                           }
                     steps = 20*1000*1000
                 S.map (VG.sum . VG.map (beamIntensity beamWidth . absMolPosition))
+                    $ decimate decimation
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
           ModeWalkInCube -> do
@@ -249,17 +258,16 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                 --v <- lift $ propagateToVector 10000 (propMany prop) xs0
                 --lift $ lift $ writeTrajectory "out.1" $ V.toList $ V.map VU.head $ v
                 S.map (VU.sum . VU.map (beamIntensity beamWidth))
+                    $ decimate decimation
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
 
           ModeWhatIsThis -> do
             let w = walkInsideBox boxSize dropletSigma :: Stream (Of (Point V3 Length)) (RVarT IO) ()
-            let x :: Stream (Of (Point V3 Length)) (RVarT IO) r
-                x = propagateToStream (wanderInsideSphereP 100 (msd molDiffusivity timeStep)) origin
-
-                w' :: Stream (Of (Point V3 Length)) (RVarT IO) ()
-                w' = S.zipWith (\(P a) (P b) -> P (a ^+^ b)) w x
-            S.map (beamIntensity beamWidth) w'
+            S.map (beamIntensity beamWidth)
+                $ decimate decimation
+                $ S.zipWith (\(P a) (P b) -> P (a ^+^ b)) w
+                $ propagateToStream (wanderInsideSphereP 100 (msd molDiffusivity timeStep)) origin
 
         corr :: RVarT IO [(Int, Log Double)]
         corr = do
