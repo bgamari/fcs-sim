@@ -211,8 +211,8 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
                <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
                <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
                <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
-               <*> option auto ( short 'l' <> long "min-lag" <> value 1000 <> help "minimum lag in nanoseconds")
-               <*> option auto ( short 'L' <> long "max-lag" <> value 2e9 <> help "minimum lag in nanoseconds")
+               <*> option auto ( short 'l' <> long "min-lag" <> value 10000 <> help "minimum lag in nanoseconds")
+               <*> option auto ( short 'L' <> long "max-lag" <> value 3e9 <> help "minimum lag in nanoseconds")
 
 data Mode = ModeDroplet | ModeWalkInCube
 
@@ -234,7 +234,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         decimation = ceiling $ minLag / timeStep
 
         steps :: Int
-        steps = ceiling $ 2 * maxLag / timeStep
+        steps = ceiling $ 4 * maxLag / timeStep
 
     putStrLn $ "Running for "++show steps++" steps"
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
