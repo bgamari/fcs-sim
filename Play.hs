@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE TypeFamilies #-}
@@ -23,6 +25,7 @@ import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM
 import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
+import Data.Vector.Unboxed.Deriving
 import qualified Data.Vector as V
 
 import Control.Lens
@@ -225,7 +228,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk = case ModeDroplet of
           ModeDroplet -> do
-                xs0 <- lift $ V.replicateM 10 $ do
+                xs0 <- lift $ VU.replicateM 10 $ do
                     dropletPosition <- pointInBox boxSize
                     return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
                 let prop = dropletP boxSize DropletParams { bindingProb = 1e-5
@@ -235,8 +238,8 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                                                           , stickingRadius = 48
                                                           , moleculeSigma = molSigma
                                                           }
-                    steps = 100*1000*1000
-                S.map (V.sum . V.map (beamIntensity beamWidth . absMolPosition))
+                    steps = 20*1000*1000
+                S.map (VG.sum . VG.map (beamIntensity beamWidth . absMolPosition))
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
           ModeWalkInCube -> do
@@ -314,3 +317,8 @@ logSpace a b n = map exp [la,la+dx..lb]
   where la = log a
         lb = log b
         dx = (lb - la) / fromIntegral n
+
+derivingUnbox "Droplet"
+    [t| Droplet -> (Point V3 Length, Point V3 Length, Bool) |]
+    [| \(Droplet a b c) -> (a,b,c) |]
+    [| \(a,b,c) -> Droplet a b c |]
