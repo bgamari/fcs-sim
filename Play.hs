@@ -234,7 +234,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         decimation = ceiling $ minLag / timeStep
 
         steps :: Int
-        steps = ceiling $ 4 * maxLag / timeStep
+        steps = ceiling $ 20 * maxLag / timeStep
 
         nDroplets = 10
 
