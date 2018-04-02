@@ -2,7 +2,7 @@ name:                fcs-sim
 version:             0.1.0.0
 -- synopsis:            
 -- description:         
--- license:             
+license:             GPL-3
 license-file:        LICENSE
 author:              Ben Gamari
 maintainer:          bgamari@gmail.com
