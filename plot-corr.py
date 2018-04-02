@@ -31,14 +31,12 @@ for fname in fnames:
             print('zeros')
             continue
         a['g'] -= norm
-        pl.semilogx(a['tau'], np.exp(a['g']), '-', alpha=0.1)
     else:
         # linear space
         a = a[np.isfinite(a['g'])]
         norm = a[0]['g']
         norms.append(norm)
         a['g'] /= norm
-        pl.semilogx(a['tau'], a['g'], '-', alpha=0.1)
 
     if not np.all(np.isfinite(a['g'])):
         print('NaN2')
@@ -49,6 +47,10 @@ for fname in fnames:
 
 corrs = np.vstack(corrs)
 corrs['g'] *= np.mean(norms)
+
+for corr in corrs:
+    pl.semilogx(corr['tau'], corr['g'], '-', alpha=0.2)
+
 #corrs['g'] = np.exp(corrs['g'])
 #pl.hist2d(np.log10(corrs['tau'].flatten()), corrs['g'].flatten(), bins=(100,100), vmax=300)
 
