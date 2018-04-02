@@ -53,6 +53,8 @@ mu = np.mean(corrs['g'], axis=0)
 err = np.std(corrs['g'], axis=0)
 print(np.nonzero(np.logical_not(np.isfinite(corrs['g']))))
 pl.errorbar(corrs['tau'][0], mu, yerr=err, c='k', ecolor='0.5', linewidth=1)
+pl.axhline(0, c='k')
+np.savetxt('avg-corr.txt', np.array([corrs[0]['tau'], mu+1, err**2]).T)
 
 def f(tau, g0, a, *ds):
     return g0 * sum((1 + tau/d)**-1 * (1 + a**2 * tau / d)**(-1./2) for d in ds)
