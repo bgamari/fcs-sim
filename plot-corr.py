@@ -10,6 +10,7 @@ import scipy.integrate
 import scipy.optimize
 
 corrs = []
+norms = []
 fnames = sorted(sys.argv[1:])
 expectedLen = len(np.genfromtxt(fnames[0], names='tau,g', dtype=float, invalid_raise=False))
 for fname in fnames:
@@ -35,6 +36,7 @@ for fname in fnames:
         # linear space
         a = a[np.isfinite(a['g'])]
         norm = a[0]['g']
+        norms.append(norm)
         a['g'] /= norm
         pl.semilogx(a['tau'], a['g'], '-', alpha=0.1)
 
@@ -46,6 +48,7 @@ for fname in fnames:
     #pl.semilogx(a['tau'], a['g'], '-')
 
 corrs = np.vstack(corrs)
+corrs['g'] *= np.mean(norms)
 #corrs['g'] = np.exp(corrs['g'])
 #pl.hist2d(np.log10(corrs['tau'].flatten()), corrs['g'].flatten(), bins=(100,100), vmax=300)
 
