@@ -63,7 +63,7 @@ executable play
   main-is:             Play.hs
   other-modules:       Reflection
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
-  ghc-options:         -threaded
+  ghc-options:         -threaded -rtsopts -O2
   build-depends:       base,
                        vector,
                        random-fu >=0.2 && <0.3,
