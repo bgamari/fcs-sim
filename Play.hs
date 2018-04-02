@@ -20,6 +20,7 @@ import Data.Random
 import qualified Streaming as S
 import qualified Streaming.Prelude as S
 import Streaming (Of, Stream)
+import qualified System.Console.AsciiProgress as Progress
 
 import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM
@@ -219,6 +220,20 @@ data Mode = ModeDroplet | ModeWalkInCube
 decimate :: Monad m => Int -> Stream (Of a) m r -> Stream (Of a) m r
 decimate n = S.catMaybes . S.mapped (S.head) . S.chunksOf n
 
+takeWithProgress :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
+takeWithProgress n s = do
+    pg <- S.liftIO $ Progress.newProgressBar
+        Progress.def { Progress.pgTotal = fromIntegral n
+                     , Progress.pgOnCompletion = Just "Done :percent after :elapsed seconds"
+                     }
+
+    let step = 2^17
+    let f (n,x) = do
+            when (n `mod` step == 0) $ S.liftIO $ Progress.tickN pg step
+            return x
+    S.mapM f $ S.zip (S.enumFrom 0) (S.take n s)
+    S.liftIO $ Progress.complete pg
+
 runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     let boxSize = 20 *^ beamWidth
@@ -244,7 +259,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     putStrLn $ "Droplet diffusivity: "++show dropletDiffusivity
     putStrLn $ "Molecule diffusivity: "++show molDiffusivity
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
-        walk = case ModeDroplet of
+        walk = case ModeWalkInCube of
           ModeDroplet -> do
                 xs0 <- lift $ VU.replicateM nDroplets $ do
                     dropletPosition <- pointInBox boxSize
@@ -258,14 +273,16 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                                                           }
                 S.map (VG.sum . VG.map (beamIntensity beamWidth . absMolPosition))
                     $ decimate decimation
-                    $ S.take steps
+                    -- $ S.take steps
+                    $ takeWithProgress steps
                     $ propagateToStream (propMany prop) xs0
           ModeWalkInCube -> do
                 xs0 <- lift $ VU.replicateM nDroplets $ pointInBox boxSize
                 let prop = wanderInsideReflectiveCubeP boxSize dropletSigma
                 S.map (VU.sum . VU.map (beamIntensity beamWidth))
                     $ decimate decimation
-                    $ S.take steps
+                    -- $ S.take steps
+                    $ takeWithProgress steps
                     $ propagateToStream (propMany prop) xs0
 
         corr :: RVarT IO [(Int, Log Double)]
@@ -286,7 +303,7 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
 main :: IO ()
-main = do
+main = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
