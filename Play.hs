@@ -236,11 +236,17 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         steps :: Int
         steps = ceiling $ 4 * maxLag / timeStep
 
-    putStrLn $ "Running for "++show steps++" steps"
+        nDroplets = 10
+
+    putStrLn $ "Run length: "++show steps++" steps"
+    putStrLn $ "Decimation: "++show decimation
+    putStrLn $ "Box size: "++show boxSize
+    putStrLn $ "Droplet diffusivity: "++show dropletDiffusivity
+    putStrLn $ "Molecule diffusivity: "++show molDiffusivity
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk = case ModeDroplet of
           ModeDroplet -> do
-                xs0 <- lift $ VU.replicateM 10 $ do
+                xs0 <- lift $ VU.replicateM nDroplets $ do
                     dropletPosition <- pointInBox boxSize
                     return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
                 let prop = dropletP boxSize DropletParams { bindingProb = 1e-5
@@ -255,10 +261,8 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                     $ S.take steps
                     $ propagateToStream (propMany prop) xs0
           ModeWalkInCube -> do
-                xs0 <- lift $ VU.replicateM 10 $ pointInBox boxSize
+                xs0 <- lift $ VU.replicateM nDroplets $ pointInBox boxSize
                 let prop = wanderInsideReflectiveCubeP boxSize dropletSigma
-                --v <- lift $ propagateToVector 10000 (propMany prop) xs0
-                --lift $ lift $ writeTrajectory "out.1" $ V.toList $ V.map VU.head $ v
                 S.map (VU.sum . VU.map (beamIntensity beamWidth))
                     $ decimate decimation
                     $ S.take steps
