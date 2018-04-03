@@ -8,6 +8,8 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
+module Main (main) where
+
 import Control.Monad
 import Data.Foldable
 import Data.Semigroup ((<>), Sum(..))
@@ -248,8 +250,9 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         dropletSigma = sqrt $ msd dropletDiffusivity timeStep
         molSigma = sqrt $ msd molDiffusivity timeStep
 
-        taus :: [Int]
-        taus = nub $ map round $ logSpace (minLag / timeStep / realToFrac decimation) (maxLag / timeStep / realToFrac decimation) corrPts
+        taus :: VU.Vector Int
+        taus = VU.fromList $ nub $ map round
+            $ logSpace (minLag / timeStep / realToFrac decimation) (maxLag / timeStep / realToFrac decimation) corrPts
 
         decimation :: Int
         decimation = ceiling $ minLag / timeStep
@@ -291,17 +294,18 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                     $ takeWithProgress steps
                     $ propagateToStream (propMany prop) xs0
 
-        corr :: RVarT IO [(Int, Log Double)]
+        corr :: RVarT IO (VU.Vector (Int, Log Double))
         corr = do
             int <- streamToVector @VU.Vector walk
-            return $ map (\tau -> (tau, correlate tau int)) taus
+            return $! VU.map (\tau -> (tau, correlate tau int)) taus
 
     forM_ [0..] $ \i -> do
         let out = outPath++zeroPadded 4 i
         putStrLn out
-        v <- runRVarT corr mwc :: IO [(Int, Log Double)]
+        v <- runRVarT corr mwc
         writeFile out
-          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double)) v
+          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double))
+          $ VU.toList v
 
 tests = [ reflectiveSphereStepIsInside ]
 
@@ -340,6 +344,7 @@ msd d dt = 6 * d * dt
 -- | Compute the correlation function with zero boundaries at the given lag
 correlate :: (VG.Vector v a, RealFrac a) => Int -> v a -> a
 correlate tau xs = VG.sum $ VG.zipWith (*) xs (VG.drop tau xs)
+{-# NOINLINE correlate #-}
 
 -- | Generate a logarithmically-spaced
 logSpace :: (RealFloat a, Enum a) => a -> a -> Int -> [a]
