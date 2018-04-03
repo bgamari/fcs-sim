@@ -228,11 +228,17 @@ takeWithProgress n s = do
                      }
 
     let step = 2^17
-    let f (n,x) = do
-            when (n `mod` step == 0) $ S.liftIO $ Progress.tickN pg step
-            return x
-    S.mapM f $ S.zip (S.enumFrom 0) (S.take n s)
-    S.liftIO $ Progress.complete pg
+    let f :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
+        f !i _ | n == i = S.liftIO $ Progress.complete pg
+        f !i s = do
+            r <- lift $ S.next s
+            case r of
+              Left ret -> S.liftIO $ Progress.complete pg
+              Right (x, s') -> do
+                  when (i `mod` step == 0) $ S.liftIO $ Progress.tickN pg step
+                  S.yield x
+                  f (i+1) s'
+    f 0 s
 
 runSim :: FilePath -> Options -> IO ()
 runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
