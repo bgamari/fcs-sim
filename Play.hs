@@ -297,7 +297,8 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         corr :: RVarT IO (VU.Vector (Int, Log Double))
         corr = do
             int <- streamToVector @VU.Vector walk
-            return $! VU.map (\tau -> (tau, correlate tau int)) taus
+            let !norm = VU.sum int / realToFrac (VU.length int)
+            return $! VU.map (\tau -> (tau, correlate tau int / norm)) taus
 
     forM_ [0..] $ \i -> do
         let out = outPath++zeroPadded 4 i
