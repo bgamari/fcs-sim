@@ -152,6 +152,7 @@ data DropletParams = DropletParams { bindingProb    :: !Double   -- ^ binding pr
                                    , stickingRadius :: !Double   -- ^ sticking region
                                    , moleculeSigma  :: !Double   -- ^ molecule MSD
                                    }
+                   deriving (Show)
 
 dropletP :: Monad m
          => BoxSize
@@ -261,25 +262,27 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
         steps = ceiling $ 20 * maxLag / timeStep
 
         nDroplets = 10
+        dropletParams = DropletParams { bindingProb = 1e-5
+                                      , unbindingProb = 1e-5
+                                      , dropletSigma = dropletSigma
+                                      , dropletRadius = 50
+                                      , stickingRadius = 48
+                                      , moleculeSigma = molSigma
+                                      }
 
     putStrLn $ "Run length: "++show steps++" steps"
     putStrLn $ "Decimation: "++show decimation
     putStrLn $ "Box size: "++show boxSize
     putStrLn $ "Droplet diffusivity: "++show dropletDiffusivity
     putStrLn $ "Molecule diffusivity: "++show molDiffusivity
+    putStrLn $ "Params: "++show dropletParams
     let walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk = case ModeWalkInCube of
           ModeDroplet -> do
                 xs0 <- lift $ VU.replicateM nDroplets $ do
                     dropletPosition <- pointInBox boxSize
                     return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
-                let prop = dropletP boxSize DropletParams { bindingProb = 1e-5
-                                                          , unbindingProb = 1e-5
-                                                          , dropletSigma = dropletSigma
-                                                          , dropletRadius = 50
-                                                          , stickingRadius = 48
-                                                          , moleculeSigma = molSigma
-                                                          }
+                let prop = dropletP boxSize dropletParams
                 S.map (VG.sum . VG.map (beamIntensity beamWidth . absMolPosition))
                     $ decimate decimation
                     -- $ S.take steps
