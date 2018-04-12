@@ -51,6 +51,10 @@ corrs['g'] *= np.mean(norms)
 for corr in corrs:
     pl.semilogx(corr['tau'], corr['g'], '-', alpha=0.2)
 
+pl.xlabel(r'$\tau$ (s)')
+pl.ylabel(r'$G(\tau)$')
+pl.suptitle('Molecule diffusion inside "sticky" droplet, simulated')
+
 #corrs['g'] = np.exp(corrs['g'])
 #pl.hist2d(np.log10(corrs['tau'].flatten()), corrs['g'].flatten(), bins=(100,100), vmax=300)
 
