@@ -10,6 +10,7 @@
 module Main (main) where
 
 import Control.Monad
+import Control.Monad.Primitive.Class
 import Data.Foldable
 import Data.Semigroup ((<>))
 import Data.List (nub)
@@ -17,7 +18,6 @@ import Data.Functor.Identity
 import Linear
 import Linear.Affine
 import Numeric.Log
-import Data.Random
 import qualified Streaming as S
 import qualified Streaming.Prelude as S
 import Streaming (Of, Stream)
@@ -27,7 +27,8 @@ import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Unboxed as VU
 
 import Control.Lens
-import System.Random.MWC
+import System.Random.MWC (withSystemRandom)
+import System.Random.MWC.Monad
 import Control.Monad.Primitive
 import Control.Monad.Trans.Class
 import GHC.Conc (getNumCapabilities, forkIO)
@@ -46,9 +47,9 @@ beamIntensity w (P x) = Exp (negate alpha / 2)
 {-# INLINEABLE beamIntensity #-}
 
 -- | Produce a random walk inside a simulation box until the path leaves
-walkInsideBox :: PrimMonad m
+walkInsideBox :: (MonadPrim m, PrimMonad m)
               => BoxSize -> Length
-              -> Stream (Of (Point V3 Length)) (RVarT m) ()
+              -> Stream (Of (Point V3 Length)) (Rand m) ()
 walkInsideBox boxSize sigma = do
     x0 <- lift $ pointInBox boxSize
     before <- lift $ streamToVector $ S.takeWhile (insideBox boxSize)
@@ -59,10 +60,6 @@ walkInsideBox boxSize sigma = do
 insideBox :: BoxSize -> Point V3 Length -> Bool
 insideBox boxSize (P x) = Data.Foldable.and $ (\s x->abs x < (s/2)) <$> boxSize <*> x
 {-# INLINEABLE insideBox #-}
-
-instance PrimMonad m => PrimMonad (RVarT m) where
-  type PrimState (RVarT m) = PrimState m
-  primitive f = lift $ primitive f
 
 stokesEinstein :: Length   -- ^ radius
                -> Viscosity
@@ -150,7 +147,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
     putStrLn $ "Molecule diffusivity: "++show molDiffusivity
     putStrLn $ "Params: "++show dropletParams
     putStrLn $ "<N>: "++show spotMolCount
-    let dropletWalk :: Stream (Of (VU.Vector (Point V3 Length))) (RVarT IO) ()
+    let dropletWalk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
         dropletWalk = do
             xs0 <- lift $ VU.replicateM nDroplets $ do
                 dropletPosition <- pointInBox boxSize
@@ -162,7 +159,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                 $ takeWithProgress steps
                 $ propagateToStream (propMany prop) xs0
 
-        walk :: Stream (Of (Log Double)) (RVarT IO) ()
+        walk :: Stream (Of (Log Double)) (Rand IO) ()
         walk = case ModeWalkInCube of
           ModeDroplet -> S.map (VU.sum . VU.map (beamIntensity beamWidth)) dropletWalk
           ModeWalkInCube -> do
@@ -174,19 +171,19 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                     $ takeWithProgress steps
                     $ propagateToStream (propMany prop) xs0
 
-        corr :: RVarT IO (VU.Vector (Int, Log Double))
+        corr :: Rand IO (VU.Vector (Int, Log Double))
         corr = do
             int <- streamToVector @VU.Vector
                 walk
             let !norm = VU.sum int / realToFrac (VU.length int)
             return $! VU.map (\tau -> (tau, correlate tau int / norm)) taus
 
-    runRVarT (S.mapM_ (S.liftIO . print) dropletWalk) mwc
+    --runRand (S.mapM_ (S.liftIO . print) dropletWalk) mwc
 
     forM_ [0..] $ \i -> do
         let out = outPath++zeroPadded 4 i
         putStrLn out
-        v <- runRVarT corr mwc
+        v <- runRand corr mwc
         writeFile out
           $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double))
           $ VU.toList v
@@ -198,18 +195,20 @@ writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unword
 
 main :: IO ()
 main = withSystemRandom $ \mwc -> do
-    v <- runRVarT (propagateToVector 10000000 (randomWalkP @Identity 1) (P (V3 0 0 0))) mwc
-    print $ VU.foldl' (\a (P x) -> a ^+^ x) zero (v :: VU.Vector (Point V3 Double))
+    v <- runRand (propagateToVector 10000000 (randomWalkP @IO 1) (P (V3 0 0 0))) mwc
+    --print $ VU.foldl' (\a (P x) -> a ^+^ x) zero (v :: VU.Vector (Point V3 Double))
+    print $ VU.length v
     return ()
+
 main' = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
 
     when False $ withSystemRandom $ \mwc -> do
-        let x :: RVarT IO (VU.Vector (Point V3 Double))
+        let x :: Rand IO (VU.Vector (Point V3 Double))
             x = propagateToVector 100000 (wanderInsideSphereP 1e9 1) origin
-        traj <- runRVarT x mwc
+        traj <- runRand x mwc
         writeFile "traj" $ unlines $ map (\(P (V3 x y z)) -> unwords [show x, show y, show z]) (VU.toList traj)
         writeFile "intensity" $ unlines $ map (show . beamIntensity (beamWidth args)) (VU.toList traj)
 
