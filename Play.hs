@@ -270,24 +270,31 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                                       , moleculeSigma = molSigma
                                       }
 
+        spotMolCount = realToFrac nDroplets / product boxSize * spheroidVol (beamWidth ^. _x) (beamWidth ^. _z)
+          where spheroidVol r1 r2 = 4*pi/3 * r1^2 * r2
+
     putStrLn $ "Run length: "++show steps++" steps"
     putStrLn $ "Decimation: "++show decimation
     putStrLn $ "Box size: "++show boxSize
     putStrLn $ "Droplet diffusivity: "++show dropletDiffusivity
     putStrLn $ "Molecule diffusivity: "++show molDiffusivity
     putStrLn $ "Params: "++show dropletParams
-    let walk :: Stream (Of (Log Double)) (RVarT IO) ()
+    putStrLn $ "<N>: "++show spotMolCount
+    let dropletWalk :: Stream (Of (VU.Vector (Point V3 Length))) (RVarT IO) ()
+        dropletWalk = do
+            xs0 <- lift $ VU.replicateM nDroplets $ do
+                dropletPosition <- pointInBox boxSize
+                return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
+            let prop = dropletP boxSize dropletParams
+            S.map (VU.map absMolPosition)
+                $ decimate decimation
+                -- $ S.take steps
+                $ takeWithProgress steps
+                $ propagateToStream (propMany prop) xs0
+
+        walk :: Stream (Of (Log Double)) (RVarT IO) ()
         walk = case ModeWalkInCube of
-          ModeDroplet -> do
-                xs0 <- lift $ VU.replicateM nDroplets $ do
-                    dropletPosition <- pointInBox boxSize
-                    return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
-                let prop = dropletP boxSize dropletParams
-                S.map (VG.sum . VG.map (beamIntensity beamWidth . absMolPosition))
-                    $ decimate decimation
-                    -- $ S.take steps
-                    $ takeWithProgress steps
-                    $ propagateToStream (propMany prop) xs0
+          ModeDroplet -> S.map (VU.sum . VU.map (beamIntensity beamWidth)) dropletWalk
           ModeWalkInCube -> do
                 xs0 <- lift $ VU.replicateM nDroplets $ pointInBox boxSize
                 let prop = wanderInsideReflectiveCubeP boxSize dropletSigma
@@ -299,9 +306,12 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
 
         corr :: RVarT IO (VU.Vector (Int, Log Double))
         corr = do
-            int <- streamToVector @VU.Vector walk
+            int <- streamToVector @VU.Vector
+                walk
             let !norm = VU.sum int / realToFrac (VU.length int)
             return $! VU.map (\tau -> (tau, correlate tau int / norm)) taus
+
+    runRVarT (S.mapM_ (S.liftIO . print) dropletWalk) mwc
 
     forM_ [0..] $ \i -> do
         let out = outPath++zeroPadded 4 i
