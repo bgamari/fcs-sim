@@ -194,13 +194,7 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
 main :: IO ()
-main = withSystemRandom $ \mwc -> do
-    v <- runRand (propagateToVector 10000000 (randomWalkP @IO 1) (P (V3 0 0 0))) mwc
-    --print $ VU.foldl' (\a (P x) -> a ^+^ x) zero (v :: VU.Vector (Point V3 Double))
-    print $ VU.length v
-    return ()
-
-main' = Progress.displayConsoleRegions $ do
+main = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
