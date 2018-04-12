@@ -13,9 +13,9 @@ cabal-version:       >=1.10
 
 executable fcs-sim
   main-is:             RunSim.hs
-  other-modules:       FcsSim
+  other-modules:       FcsSim, Types
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
-  ghc-options:         -threaded
+  ghc-options:         -Wall -threaded
   build-depends:       base >=4.6 && <4.12,
                        mtl,
                        vector >=0.10 && <0.13,
@@ -36,8 +36,9 @@ executable fcs-sim
 
 executable fcs-sim-corr
   main-is:             FcsCorr.hs
+  other-modules:       FcsSim, Types
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
-  ghc-options:         -threaded
+  ghc-options:         -Wall -threaded
   build-depends:       base,
                        mtl,
                        vector,
@@ -61,9 +62,9 @@ executable fcs-sim-corr
 
 executable play
   main-is:             Play.hs
-  other-modules:       Reflection
+  other-modules:       Reflection, Propagator, Types
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
-  ghc-options:         -threaded -rtsopts -O2
+  ghc-options:         -Wall -threaded -rtsopts -O2 -ddump-stg -ddump-to-file -dsuppress-idinfo
   build-depends:       base,
                        vector,
                        ascii-progress,

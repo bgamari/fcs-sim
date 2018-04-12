@@ -1,8 +1,7 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
-{-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE ScopedTypeVariables #-}
@@ -12,7 +11,7 @@ module Main (main) where
 
 import Control.Monad
 import Data.Foldable
-import Data.Semigroup ((<>), Sum(..))
+import Data.Semigroup ((<>))
 import Data.List (nub)
 import Data.Functor.Identity
 import Linear
@@ -25,91 +24,26 @@ import Streaming (Of, Stream)
 import qualified System.Console.AsciiProgress as Progress
 
 import qualified Data.Vector.Generic as VG
-import qualified Data.Vector.Generic.Mutable as VGM
-import qualified Data.Vector.Storable as VS
 import qualified Data.Vector.Unboxed as VU
-import Data.Vector.Unboxed.Deriving
-import qualified Data.Vector as V
 
 import Control.Lens
 import System.Random.MWC
-import Data.Random.Distribution.Bernoulli
 import Control.Monad.Primitive
 import Control.Monad.Trans.Class
 import GHC.Conc (getNumCapabilities, forkIO)
 import Options.Applicative
-import Test.QuickCheck
 
 import Reflection
+import Propagator
+import Types
 
-data Spherical a = Spherical { _r      :: !a    -- ^ radial
-                             , _theta  :: !a    -- ^ inclination
-                             , _phi    :: !a    -- ^ azimuth
-                             }
-                 deriving (Show, Eq, Ord)
-
-sphericalV3 :: RealFloat a => Iso' (Spherical a) (V3 a)
-sphericalV3 = iso from to
+-- | Gaussian beam intensity
+beamIntensity :: BeamSize -> Point V3 Length -> Log Double
+beamIntensity w (P x) = Exp (negate alpha / 2)
   where
-    from (Spherical r theta phi) = V3 x y z
-      where
-        x = r * sin theta * cos phi
-        y = r * sin theta * sin phi
-        z = r * cos theta
-    to (V3 x y z) = Spherical r theta phi
-      where
-        r = sqrt (x^2 + y^2 + z^2)
-        theta = acos (z / r)
-        phi = atan2 y x
-{-# INLINE sphericalV3 #-}
-
--- | Generate a Gaussian-distributed step in spherical coordinates
-stepSpherical :: Monad m => Length -> RVarT m (Spherical Double)
-stepSpherical sigma = do
-    r <- normalT 0 sigma
-    theta <- uniformT (-pi) pi
-    x <- uniformT 0 1
-    let !phi = acos (2*x - 1)
-    return $ Spherical r theta phi
-{-# INLINEABLE stepSpherical #-}
-
-type Viscosity = Double     -- ^ centipoise
-type Diffusivity = Double   -- ^ nm^2 / ns
-type Time = Double          -- ^ nanoseconds
-type Length = Double        -- ^ nanometers
-type BeamSize = V3 Length
-type BoxSize = V3 Length
-
--- | Generate a Gaussian-distributed step in Cartesian coordinates
-step3D :: Monad m => Length -> RVarT m (V3 Double)
-step3D sigma = do
-    dir <- V3 <$> dist <*> dist <*> dist
-    r <- normalT 0 sigma
-    return $! r *^ normalize dir
-  where
-    dist = uniformT (-1) 1
-{-# INLINEABLE step3D #-}
-
-newtype Propagator m a = Propagator (a -> m a)
-
-propagateToStream :: Monad m => Propagator m a -> a -> Stream (Of a) m r
-propagateToStream (Propagator f) s0 = S.iterateM f (return $! s0)
-
-propagateToVector :: (VG.Vector v a, Monad m) => Int -> Propagator m a -> a -> m (v a)
-propagateToVector steps (Propagator f) s0 = VG.iterateNM steps f s0
-
-propMany :: (Monad m, VG.Vector v a)
-         => Propagator m a -> Propagator m (v a)
-propMany (Propagator f) = Propagator (VG.mapM f)
-
-randomWalkP :: Monad m => Length -> Propagator (RVarT m) (Point V3 Double)
-randomWalkP sigma = Propagator $ \x -> do
-    dx <- step3D sigma
-    return $! x .+^ dx
-
--- | Draw a point from a given box.
-pointInBox :: (Monad m) => BoxSize -> RVarT m (Point V3 Length)
-pointInBox boxSize = P <$> traverse (\x -> uniformT (-x/2) (x/2)) boxSize
+    f wx xx = xx^2 / wx^2
+    alpha = Data.Foldable.sum $ f <$> w <*> x
+{-# INLINEABLE beamIntensity #-}
 
 -- | Produce a random walk inside a simulation box until the path leaves
 walkInsideBox :: PrimMonad m
@@ -121,70 +55,6 @@ walkInsideBox boxSize sigma = do
               $ propagateToStream (randomWalkP sigma) x0
     VU.mapM_ S.yield $ VU.reverse before
     S.takeWhile (insideBox boxSize) $ propagateToStream (randomWalkP sigma) x0
-
--- | Produce a random walk inside a sphere with reflective boundary conditions
-wanderInsideSphereP :: (Monad m)
-                    => Length -> Length
-                    -> Propagator (RVarT m) (Point V3 Length)
-wanderInsideSphereP radius sigma = Propagator $ \x -> do
-    dx <- step3D sigma
-    return $! reflectiveSphereStep radius x dx
-
-wanderInsideReflectiveCubeP :: Monad m
-                            => BoxSize -> Length
-                            -> Propagator (RVarT m) (Point V3 Length)
-wanderInsideReflectiveCubeP boxSize sigma = Propagator $ \x -> do
-    dx <- step3D sigma
-    return $! reflectiveCubeStep boxSize x dx
-
-data Droplet = Droplet { molPosition :: !(Point V3 Length)
-                       , dropletPosition :: !(Point V3 Length)
-                       , bound :: !Bool
-                       }
-
-absMolPosition :: Droplet -> Point V3 Length
-absMolPosition d = molPosition d .+^ unP (dropletPosition d)
-
-data DropletParams = DropletParams { bindingProb    :: !Double   -- ^ binding probability when in sticky region
-                                   , unbindingProb  :: !Double   -- ^ unbinding probability
-                                   , dropletSigma   :: !Double   -- ^ droplet MSD
-                                   , dropletRadius  :: !Double   -- ^ droplet radius
-                                   , stickingRadius :: !Double   -- ^ sticking region
-                                   , moleculeSigma  :: !Double   -- ^ molecule MSD
-                                   }
-                   deriving (Show)
-
-dropletP :: Monad m
-         => BoxSize
-         -> DropletParams
-         -> Propagator (RVarT m) Droplet
-dropletP boxSize DropletParams{..} = Propagator $ \x -> do
-    dxDroplet <- step3D dropletSigma
-    molPosition' <- case bound x of
-                      False -> do dx <- step3D moleculeSigma
-                                  return $! reflectiveSphereStep dropletRadius (molPosition x) dx
-                      True  -> return $! molPosition x
-    stuck <- if | bound x -> not <$> bernoulliT unbindingProb
-                | molPosition' `distance` origin > stickingRadius -> bernoulliT bindingProb
-                | otherwise -> return False
-    return $! Droplet { molPosition     = molPosition'
-                      , dropletPosition = reflectiveCubeStep boxSize (dropletPosition x) dxDroplet
-                      , bound           = stuck
-                      }
-
--- | Gaussian beam intensity
-beamIntensity :: BeamSize -> Point V3 Length -> Log Double
-beamIntensity w (P x) = Exp (negate alpha / 2)
-  where
-    f wx xx = xx^2 / wx^2
-    alpha = Data.Foldable.sum $ f <$> w <*> x
-{-# INLINEABLE beamIntensity #-}
-
-streamToVector :: forall v a m r. (VG.Vector v a, PrimMonad m)
-               => Stream (Of a) m r -> m (v a)
-streamToVector = VG.unfoldrM f
-  where f s = either (const Nothing) Just <$> S.next s
-{-# INLINE streamToVector #-}
 
 insideBox :: BoxSize -> Point V3 Length -> Bool
 insideBox boxSize (P x) = Data.Foldable.and $ (\s x->abs x < (s/2)) <$> boxSize <*> x
@@ -327,7 +197,11 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
 main :: IO ()
-main = Progress.displayConsoleRegions $ do
+main = withSystemRandom $ \mwc -> do
+    v <- runRVarT (propagateToVector 10000000 (randomWalkP @Identity 1) (P (V3 0 0 0))) mwc
+    print $ VU.foldl' (\a (P x) -> a ^+^ x) zero (v :: VU.Vector (Point V3 Double))
+    return ()
+main' = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
@@ -366,8 +240,3 @@ logSpace a b n = map exp [la,la+dx..lb]
   where la = log a
         lb = log b
         dx = (lb - la) / fromIntegral n
-
-derivingUnbox "Droplet"
-    [t| Droplet -> (Point V3 Length, Point V3 Length, Bool) |]
-    [| \(Droplet a b c) -> (a,b,c) |]
-    [| \(a,b,c) -> Droplet a b c |]
