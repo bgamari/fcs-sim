@@ -176,7 +176,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
             int <- streamToVector @VU.Vector
                 walk
             let !norm = VU.sum int / realToFrac (VU.length int)
-            return $! VU.map (\tau -> (tau, correlate tau int / norm)) taus
+            return $! VU.map (\tau -> (tau, correlate tau int / norm^2)) taus
 
     --runRand (S.mapM_ (S.liftIO . print) dropletWalk) mwc
 
