@@ -194,17 +194,18 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
 main :: IO ()
-main = Progress.displayConsoleRegions $ do
+main = withSystemRandom $ \mwc -> do
+    let x :: Rand IO (VU.Vector (Point V3 Double))
+        x = propagateToVector 10000000 (randomWalkP 1) origin
+    traj <- runRand x mwc
+    writeFile "traj" $ unlines $ map (\(P (V3 x y z)) -> unwords [show x, show y, show z]) (VU.toList traj)
+    writeFile "intensity" $ unlines $ map (show . beamIntensity 1) (VU.toList traj)
+    return ()
+
+main' = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
-
-    when False $ withSystemRandom $ \mwc -> do
-        let x :: Rand IO (VU.Vector (Point V3 Double))
-            x = propagateToVector 100000 (wanderInsideSphereP 1e9 1) origin
-        traj <- runRand x mwc
-        writeFile "traj" $ unlines $ map (\(P (V3 x y z)) -> unwords [show x, show y, show z]) (VU.toList traj)
-        writeFile "intensity" $ unlines $ map (show . beamIntensity (beamWidth args)) (VU.toList traj)
 
     forM_ [1..ncaps-1] $ \i -> forkIO $ runSim ("out/"++zeroPadded 2 i++"-") args
     runSim ("out/"++zeroPadded 2 0++"-") args
