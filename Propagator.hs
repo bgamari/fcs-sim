@@ -64,7 +64,7 @@ propagateToVector steps (Propagator f) s0 = do
     let go 0 _ = VG.freeze v
         go n s = do
             s' <- f s
-            VGM.unsafeWrite v n s'
+            VGM.unsafeWrite v (steps-n) s'
             go (n-1) s'
     go steps s0
 {-# INLINEABLE propagateToVector #-}
