@@ -39,8 +39,8 @@ import Propagator
 import Types
 
 -- | Gaussian beam intensity
-beamIntensity :: BeamSize -> Point V3 Length -> Log Double
-beamIntensity w (P x) = Exp (negate alpha / 2)
+beamIntensity :: BeamSize -> Point V3 Length -> Double
+beamIntensity w (P x) = exp (negate alpha / 2)
   where
     f wx xx = xx^2 / wx^2
     alpha = Data.Foldable.sum $ f <$> w <*> x
@@ -159,7 +159,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                 $ takeWithProgress steps
                 $ propagateToStream (propMany prop) xs0
 
-        walk :: Stream (Of (Log Double)) (Rand IO) ()
+        walk :: Stream (Of (Double)) (Rand IO) ()
         walk = case ModeWalkInCube of
           ModeDroplet -> S.map (VU.sum . VU.map (beamIntensity beamWidth)) dropletWalk
           ModeWalkInCube -> do
@@ -171,7 +171,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                     $ takeWithProgress steps
                     $ propagateToStream (propMany prop) xs0
 
-        corr :: Rand IO (VU.Vector (Int, Log Double))
+        corr :: Rand IO (VU.Vector (Int, Double))
         corr = do
             int <- streamToVector @VU.Vector
                 walk
