@@ -7,6 +7,7 @@
 
 module Propagator where
 
+import Control.DeepSeq
 import Control.Monad.Primitive.Class
 import System.Random.MWC.Monad
 import System.Random.MWC.Distributions.Monad
@@ -52,7 +53,7 @@ newtype Propagator m a = Propagator (a -> m a)
 
 propagateToStream :: Monad m => Propagator m a -> a -> Stream (Of a) m r
 propagateToStream (Propagator f) s0 = S.iterateM f (return $! s0)
-{-# INLINE propagateToStream #-}
+{-# INLINEABLE propagateToStream #-}
 
 propagateToVector :: (VG.Vector v a, PrimMonad m) => Int -> Propagator m a -> a -> m (v a)
 -- Naively one might write,
@@ -66,7 +67,7 @@ propagateToVector steps (Propagator f) s0 = do
             VGM.unsafeWrite v n s'
             go (n-1) s'
     go steps s0
-{-# INLINE propagateToVector #-}
+{-# INLINEABLE propagateToVector #-}
 
 --propagateToVector steps (Propagator f) s0 = return VG.empty
 
@@ -82,7 +83,7 @@ randomWalkP sigma = Propagator $ \x -> do
 
 -- | Draw a point from a given box.
 pointInBox :: (MonadPrim m) => BoxSize -> Rand m (Point V3 Length)
-pointInBox boxSize = P <$> traverse (\x -> uniformR (-x/2, x/2)) boxSize
+pointInBox boxSize = P <$!!> traverse (\x -> uniformR (-x/2, x/2)) boxSize
 {-# INLINEABLE pointInBox #-}
 
 -- | Produce a random walk inside a sphere with reflective boundary conditions
@@ -91,7 +92,7 @@ wanderInsideSphereP :: (MonadPrim m)
                     -> Propagator (Rand m) (Point V3 Length)
 wanderInsideSphereP radius sigma = Propagator $ \x -> do
     dx <- step3D sigma
-    return $! reflectiveSphereStep radius x dx
+    return $!! reflectiveSphereStep radius x dx
 {-# INLINEABLE wanderInsideSphereP #-}
 
 wanderInsideReflectiveCubeP :: (MonadPrim m)
@@ -99,7 +100,7 @@ wanderInsideReflectiveCubeP :: (MonadPrim m)
                             -> Propagator (Rand m) (Point V3 Length)
 wanderInsideReflectiveCubeP boxSize sigma = Propagator $ \x -> do
     dx <- step3D sigma
-    return $! reflectiveCubeStep boxSize x dx
+    return $!! reflectiveCubeStep boxSize x dx
 {-# INLINEABLE wanderInsideReflectiveCubeP #-}
 
 data Droplet = Droplet { molPosition :: !(Point V3 Length)
@@ -145,7 +146,7 @@ streamToVector = VG.unfoldrM f
 --streamToVector m = do
 --    S.length m
 --    return $ VG.empty
-{-# INLINE streamToVector #-}
+{-# INLINEABLE streamToVector #-}
 
 derivingUnbox "Droplet"
     [t| Droplet -> (Point V3 Length, Point V3 Length, Bool) |]

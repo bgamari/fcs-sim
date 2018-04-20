@@ -61,7 +61,7 @@ reflectiveCubeStep (V3 sx sy sz) x0 dx = go (x0 .+^ dx)
 -- | @reflect n v@ is the vector @v@ reflected across the plane normal to @n@.
 reflect :: (Metric f, RealFrac a) => f a -> f a -> f a
 reflect n v = v ^-^ 2 * (v `dot` n) / quadrance n *^ n
-{-# INLINE reflect #-}
+{-# INLINEABLE reflect #-}
 
 -- | @sphereIntercept r x0 dx@ is the values @alpha@ where
 -- @x0 + alpha * dx@ falls on the surface of a sphere of radius @r@
