@@ -85,3 +85,6 @@ quadratic a b c
     discrim = b^2 - 4 * a * c
     s = sqrt discrim
 {-# INLINEABLE quadratic #-}
+
+tests :: [Property]
+tests = [ reflectiveSphereStepIsInside ]

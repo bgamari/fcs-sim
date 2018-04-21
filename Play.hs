@@ -88,7 +88,7 @@ options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400
 data Mode = ModeDroplet | ModeWalkInCube
 
 decimate :: Monad m => Int -> Stream (Of a) m r -> Stream (Of a) m r
-decimate n = S.catMaybes . S.mapped (S.head) . S.chunksOf n
+decimate n = S.catMaybes . S.mapped S.head . S.chunksOf n
 
 takeWithProgress :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
 takeWithProgress n s = do
@@ -97,7 +97,7 @@ takeWithProgress n s = do
                      , Progress.pgOnCompletion = Just "Done :percent after :elapsed seconds"
                      }
 
-    let step = 2^17
+    let step = 2^(17::Int)
     let f :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
         f !i _ | n == i = S.liftIO $ Progress.complete pg
         f !i s = do
@@ -147,6 +147,7 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
     putStrLn $ "Molecule diffusivity: "++show molDiffusivity
     putStrLn $ "Params: "++show dropletParams
     putStrLn $ "<N>: "++show spotMolCount
+
     let dropletWalk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
         dropletWalk = do
             xs0 <- lift $ VU.replicateM nDroplets $ do
@@ -175,9 +176,9 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
         corr = do
             int <- streamToVector @VU.Vector
                 walk
-            let !norm = VU.sum int / realToFrac (VU.length int)
+            let !meanInt = VU.sum int / realToFrac (VU.length int)
                 maxTau = VU.last taus
-            return $! VU.map (\tau -> (tau, correlate maxTau tau int / norm^2)) taus
+            return $! VU.map (\tau -> (tau, correlate maxTau tau int / meanInt^(2::Int))) taus
 
     --runRand (S.mapM_ (S.liftIO . print) dropletWalk) mwc
 
@@ -189,13 +190,12 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
           $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double))
           $ VU.toList v
 
-tests = [ reflectiveSphereStepIsInside ]
-
 writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
-writeTrajectory path = writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
+writeTrajectory path =
+    writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
 main :: IO ()
-main = withSystemRandom $ \mwc -> do
+main' = withSystemRandom $ \mwc -> do
     let x :: Rand IO (VU.Vector (Point V3 Double))
         x = propagateToVector 10000000 (randomWalkP 1) origin
     traj <- runRand x mwc
@@ -203,7 +203,7 @@ main = withSystemRandom $ \mwc -> do
     writeFile "intensity" $ unlines $ map (show . beamIntensity 1) (VU.toList traj)
     return ()
 
-main' = Progress.displayConsoleRegions $ do
+main = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
