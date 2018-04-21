@@ -74,16 +74,20 @@ data Options = Opts { beamWidth     :: V3 Double
                     , corrPts       :: Int
                     , minLag        :: Double
                     , maxLag        :: Double
+                    , outputDir     :: FilePath
                     }
 
 options :: Parser Options
-options = Opts <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
-               <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
-               <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
-               <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
-               <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
-               <*> option auto ( short 'l' <> long "min-lag" <> value 10000 <> help "minimum lag in nanoseconds")
-               <*> option auto ( short 'L' <> long "max-lag" <> value 3e9 <> help "minimum lag in nanoseconds")
+options =
+    Opts
+    <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
+    <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
+    <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
+    <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
+    <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
+    <*> option auto ( short 'l' <> long "min-lag" <> value 10000 <> help "minimum lag in nanoseconds")
+    <*> option auto ( short 'L' <> long "max-lag" <> value 3e9 <> help "minimum lag in nanoseconds")
+    <*> option str  ( short 'o' <> long "output" <> value "out" <> help "output directory")
 
 data Mode = ModeDroplet | ModeWalkInCube
 
@@ -208,8 +212,8 @@ main = Progress.displayConsoleRegions $ do
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
 
-    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim ("out/"++zeroPadded 2 i++"-") args
-    runSim ("out/"++zeroPadded 2 0++"-") args
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim (outputDir args ++"/"++zeroPadded 2 i++"-") args
+    runSim (outputDir args++"/"++zeroPadded 2 0++"-") args
     return ()
 
 -- | Render a number in zero-padded form
