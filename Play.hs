@@ -22,6 +22,8 @@ import qualified Streaming as S
 import qualified Streaming.Prelude as S
 import Streaming (Of, Stream)
 import qualified System.Console.AsciiProgress as Progress
+import System.Directory
+import System.FilePath
 
 import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Unboxed as VU
@@ -212,8 +214,9 @@ main = Progress.displayConsoleRegions $ do
     args <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
 
-    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim (outputDir args ++"/"++zeroPadded 2 i++"-") args
-    runSim (outputDir args++"/"++zeroPadded 2 0++"-") args
+    createDirectoryIfMissing False (outputDir args)
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim (outputDir args </> zeroPadded 2 i++"-") args
+    runSim (outputDir args </> zeroPadded 2 0++"-") args
     return ()
 
 -- | Render a number in zero-padded form
