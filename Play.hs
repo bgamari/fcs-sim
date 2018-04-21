@@ -111,7 +111,7 @@ takeWithProgress n s = do
     f 0 s
 
 runSim :: FilePath -> Options -> IO ()
-runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
+runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
     let boxSize = 20 *^ beamWidth
         dropletDiffusivity = 5.6e-3 -- nm^2/ns
         molDiffusivity = 0.122 -- nm^2/ns
@@ -159,7 +159,7 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
                 $ takeWithProgress steps
                 $ propagateToStream (propMany prop) xs0
 
-        walk :: Stream (Of (Double)) (Rand IO) ()
+        walk :: Stream (Of Double) (Rand IO) ()
         walk = case ModeWalkInCube of
           ModeDroplet -> S.map (VU.sum . VU.map (beamIntensity beamWidth)) dropletWalk
           ModeWalkInCube -> do
@@ -176,7 +176,8 @@ runSim outPath (Opts {..}) = withSystemRandom $ \mwc -> do
             int <- streamToVector @VU.Vector
                 walk
             let !norm = VU.sum int / realToFrac (VU.length int)
-            return $! VU.map (\tau -> (tau, correlate tau int / norm^2)) taus
+                maxTau = VU.last taus
+            return $! VU.map (\tau -> (tau, correlate maxTau tau int / norm^2)) taus
 
     --runRand (S.mapM_ (S.liftIO . print) dropletWalk) mwc
 
@@ -224,11 +225,9 @@ msd d dt = 6 * d * dt
 {-# INLINEABLE msd #-}
 
 -- | Compute the correlation function with zero boundaries at the given lag
-correlate :: (VG.Vector v a, RealFrac a) => Int -> v a -> a
-correlate tau xs =
-    VG.sum $ VG.zipWith (*)
-        (VG.take len $ xs VG.++ xs)
-        (VG.take len $ VG.drop tau $ xs VG.++ xs)
+correlate :: (VG.Vector v a, RealFrac a) => Int -> Int -> v a -> a
+correlate maxTau tau xs =
+    VG.sum $ VG.zipWith (*) (VG.take (len - maxTau) xs) (VG.drop tau xs)
   where len = VG.length xs
 
 -- | Generate a logarithmically-spaced
