@@ -3,15 +3,25 @@
 
 import sys
 import numpy as np
-import matplotlib
-matplotlib.use('Qt5Agg')
-import matplotlib.pyplot as pl
 import scipy.integrate
 import scipy.optimize
+import argparse
+
+parser = argparse.ArgumentParser()
+parser.add_argument('-o', '--output', type=argparse.FileType('w'), help='Output path')
+parser.add_argument('files', nargs='+', type=argparse.FileType('r'), help='Input correlations')
+args = parser.parse_args()
+
+import matplotlib
+if args.output:
+    matplotlib.use('Agg')
+else:
+    matplotlib.use('Qt5Agg')
+import matplotlib.pyplot as pl
 
 corrs = []
 norms = []
-fnames = sorted(sys.argv[1:])
+fnames = sorted(f.name for f in args.files)
 expectedLen = len(np.genfromtxt(fnames[0], names='tau,g', dtype=float, invalid_raise=False))
 for fname in fnames:
     print('%-20s\t' % fname,)
@@ -46,7 +56,7 @@ for fname in fnames:
     #pl.semilogx(a['tau'], a['g'], '-')
 
 corrs = np.vstack(corrs)
-corrs['g'] *= np.mean(norms)
+#corrs['g'] *= np.mean(norms)
 
 for corr in corrs:
     pl.semilogx(corr['tau'], corr['g'], '-', alpha=0.2)
@@ -80,4 +90,7 @@ if False:
     xs = np.logspace(np.log10(corrs[0][0]['tau']), 1, 1000)
     pl.plot(xs, fitFunc(xs, *p1), 'k')
 
-pl.show()
+if args.output:
+    pl.savefig(args.output.name)
+else:
+    pl.show()
