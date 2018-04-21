@@ -10,8 +10,9 @@ import Linear
 import Linear.Affine
 import Test.QuickCheck
 
--- | @reflectiveSphereStep r x0 dx@ is the result of a step from point @x0@
--- to @x0 + dx@ inside a reflective sphere of radius @r@.
+squared :: Num a => a -> a
+squared x = x * x
+
 reflectiveSphereStep :: (Show a, Epsilon a, RealFloat a)
                      => a -> Point V3 a -> V3 a -> Point V3 a
 reflectiveSphereStep radius x0 dx
@@ -68,7 +69,7 @@ reflect n v = v ^-^ 2 * (v `dot` n) / quadrance n *^ n
 -- centered at the origin. The first element is negative.
 sphereIntercept :: Show a => RealFloat a => a -> Point V3 a -> V3 a -> (a, a)
 sphereIntercept radius (P x0) dir =
-    case quadratic (quadrance dir) (2 * x0 `dot` dir) (quadrance x0 - radius^2) of
+    case quadratic (quadrance dir) (2 * x0 `dot` dir) (quadrance x0 - squared radius) of
       TwoSolns a b -> (a, b)
       NoSoln       -> error $ show ("sphereIntercept", x0, radius, dir)
 {-# INLINEABLE sphereIntercept #-}
@@ -82,7 +83,7 @@ quadratic a b c
   | discrim < 0 = NoSoln
   | otherwise   = TwoSolns ((-b + s) / 2 / a) ((-b - s) / 2 / a)
   where
-    discrim = b^2 - 4 * a * c
+    discrim = squared b - 4 * a * c
     s = sqrt discrim
 {-# INLINEABLE quadratic #-}
 

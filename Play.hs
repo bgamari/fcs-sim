@@ -42,7 +42,7 @@ import Types
 beamIntensity :: BeamSize -> Point V3 Length -> Double
 beamIntensity w (P x) = exp (negate alpha / 2)
   where
-    f wx xx = xx^2 / wx^2
+    f wx xx = squared xx / squared wx
     alpha = Data.Foldable.sum $ f <$> w <*> x
 {-# INLINEABLE beamIntensity #-}
 
@@ -142,7 +142,7 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
                                       }
 
         spotMolCount = realToFrac nDroplets / product boxSize * spheroidVol (beamWidth ^. _x) (beamWidth ^. _z)
-          where spheroidVol r1 r2 = 4*pi/3 * r1^2 * r2
+          where spheroidVol r1 r2 = 4*pi/3 * squared r1 * r2
 
     putStrLn $ "Run length: "++show steps++" steps"
     putStrLn $ "Decimation: "++show decimation
@@ -182,7 +182,7 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
                 walk
             let !meanInt = VU.sum int / realToFrac (VU.length int)
                 maxTau = VU.last taus
-            return $! VU.map (\tau -> (tau, correlate maxTau tau int / meanInt^(2::Int))) taus
+            return $! VU.map (\tau -> (tau, correlate maxTau tau int / squared meanInt)) taus
 
     --runRand (S.mapM_ (S.liftIO . print) dropletWalk) mwc
 
