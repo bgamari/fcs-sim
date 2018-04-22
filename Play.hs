@@ -84,7 +84,7 @@ options =
     Opts
     <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
     <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
-    <*> option auto ( short 'b' <> long "box-size-factor" <> value 20 <> help "size of simulation box")
+    <*> option auto ( short 'b' <> long "box-size-factor" <> value 60 <> help "size of simulation box")
     <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
     <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
     <*> option auto ( short 'l' <> long "min-lag" <> value 10000 <> help "minimum lag in nanoseconds")
@@ -118,7 +118,7 @@ takeWithProgress n s = do
 
 runSim :: FilePath -> Options -> IO ()
 runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
-    let boxSize = 20 *^ beamWidth
+    let boxSize = boxSizeFactor *^ beamWidth
         dropletDiffusivity = 5.6e-3 -- nm^2/ns
         molDiffusivity = 0.122 -- nm^2/ns
         dropletSigma = sqrt $ msd dropletDiffusivity timeStep
@@ -132,9 +132,9 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
         decimation = ceiling $ minLag / timeStep
 
         steps :: Int
-        steps = ceiling $ 20 * maxLag / timeStep
+        steps = ceiling $ 10 * maxLag / timeStep
 
-        nDroplets = 10
+        nDroplets = 80
         dropletParams = DropletParams { bindingProb = 1e-5
                                       , unbindingProb = 1e-5
                                       , dropletSigma = dropletSigma
