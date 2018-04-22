@@ -8,7 +8,9 @@
 module Propagator where
 
 import Control.DeepSeq
+import Control.Lens
 import Control.Monad.Primitive.Class
+import Data.Foldable
 import System.Random.MWC.Monad
 import System.Random.MWC.Distributions.Monad
 import Linear
@@ -86,6 +88,33 @@ pointInBox :: (MonadPrim m) => BoxSize -> Rand m (Point V3 Length)
 pointInBox boxSize = P <$!!> traverse (\x -> uniformR (-x/2, x/2)) boxSize
 {-# INLINEABLE pointInBox #-}
 
+-- | Draw a point from the boundary of the given box.
+pointOnBox :: (MonadPrim m) => BoxSize -> Rand m (Point V3 Length)
+pointOnBox boxSize = do
+    face <- uniformR (0,2)
+    case face :: Int of
+      0 -> do y <- uniformR (negate $ boxSize ^. _y, boxSize ^. _y)
+              z <- uniformR (negate $ boxSize ^. _z, boxSize ^. _z)
+              s <- sign
+              let x = s $ (boxSize ^. _x)
+              return $ P $ V3 x y z
+      1 -> do x <- uniformR (negate $ boxSize ^. _x, boxSize ^. _x)
+              z <- uniformR (negate $ boxSize ^. _z, boxSize ^. _z)
+              s <- sign
+              let y = s $ (boxSize ^. _y)
+              return $ P $ V3 x y z
+      2 -> do x <- uniformR (negate $ boxSize ^. _x, boxSize ^. _x)
+              y <- uniformR (negate $ boxSize ^. _y, boxSize ^. _y)
+              s <- sign
+              let z = s $ (boxSize ^. _z)
+              return $ P $ V3 x y z
+      _ -> fail "pointOnBox: impossible"
+  where
+    sign = f <$> bernoulli 0.5
+      where f True = id
+            f False = negate
+{-# INLINEABLE pointOnBox #-}
+
 -- | Produce a random walk inside a sphere with reflective boundary conditions
 wanderInsideSphereP :: (MonadPrim m)
                     => Length -> Length
@@ -102,6 +131,21 @@ wanderInsideReflectiveCubeP boxSize sigma = Propagator $ \x -> do
     dx <- step3D sigma
     return $!! reflectiveCubeStep boxSize x dx
 {-# INLINEABLE wanderInsideReflectiveCubeP #-}
+
+wanderInsideCubeP :: (MonadPrim m)
+                  => BoxSize -> Length
+                  -> Propagator (Rand m) (Point V3 Length)
+wanderInsideCubeP boxSize sigma = Propagator $ \x -> do
+    dx <- step3D sigma
+    let x' = x .+^ dx
+    if insideBox boxSize x'
+      then return $!! reflectiveCubeStep boxSize x dx
+      else pointOnBox boxSize
+{-# INLINEABLE wanderInsideCubeP #-}
+
+insideBox :: BoxSize -> Point V3 Length -> Bool
+insideBox boxSize (P x) = Data.Foldable.and $ (\s y->abs y < (s/2)) <$> boxSize <*> x
+{-# INLINEABLE insideBox #-}
 
 data Droplet = Droplet { molPosition :: !(Point V3 Length)
                        , dropletPosition :: !(Point V3 Length)

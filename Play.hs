@@ -59,10 +59,6 @@ walkInsideBox boxSize sigma = do
     VU.mapM_ S.yield $ VU.reverse before
     S.takeWhile (insideBox boxSize) $ propagateToStream (randomWalkP sigma) x0
 
-insideBox :: BoxSize -> Point V3 Length -> Bool
-insideBox boxSize (P x) = Data.Foldable.and $ (\s x->abs x < (s/2)) <$> boxSize <*> x
-{-# INLINEABLE insideBox #-}
-
 stokesEinstein :: Length   -- ^ radius
                -> Viscosity
                -> Diffusivity
@@ -154,6 +150,15 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
     putStrLn $ "Params: "++show dropletParams
     putStrLn $ "<N>: "++show spotMolCount
 
+    let testWalk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
+        testWalk = do
+            xs0 <- lift $ VU.replicateM nDroplets $ pointInBox boxSize
+            let prop = wanderInsideReflectiveCubeP boxSize molSigma
+            decimate decimation
+                -- $ S.take steps
+                $ takeWithProgress steps
+                $ propagateToStream (propMany prop) xs0
+
     let dropletWalk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
         dropletWalk = do
             xs0 <- lift $ VU.replicateM nDroplets $ do
@@ -166,22 +171,21 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
                 $ takeWithProgress steps
                 $ propagateToStream (propMany prop) xs0
 
-        walk :: Stream (Of Double) (Rand IO) ()
+        --walk :: Stream (Of Double) (Rand IO) ()
+        walk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
         walk = case ModeWalkInCube of
-          ModeDroplet -> S.map (VU.sum . VU.map (beamIntensity beamWidth)) dropletWalk
-          ModeWalkInCube -> do
-                xs0 <- lift $ VU.replicateM nDroplets $ pointInBox boxSize
-                let prop = wanderInsideReflectiveCubeP boxSize dropletSigma
-                S.map (VU.sum . VU.map (beamIntensity beamWidth))
-                    $ decimate decimation
-                    -- $ S.take steps
-                    $ takeWithProgress steps
-                    $ propagateToStream (propMany prop) xs0
+          ModeDroplet -> dropletWalk
+          ModeWalkInCube -> testWalk
 
         corr :: Rand IO (VU.Vector (Int, Double))
         corr = do
+            --pos <- streamToVector @VU.Vector $ S.map VU.head walk
+            --let int = VU.map (beamIntensity beamWidth) pos
+            --lift $ writeTrajectory "traj" $ VU.toList pos
+
             int <- streamToVector @VU.Vector
-                walk
+                $ S.map (VU.sum . VU.map (beamIntensity beamWidth)) walk
+            --lift $ writeFile "intensity" $ unlines $ map show $ VU.toList int
             let !meanInt = VU.sum int / realToFrac (VU.length int)
                 maxTau = VU.last taus
             return $! VU.map (\tau -> (tau, correlate maxTau tau int / squared meanInt)) taus
@@ -201,14 +205,6 @@ writeTrajectory path =
     writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
 main :: IO ()
-main' = withSystemRandom $ \mwc -> do
-    let x :: Rand IO (VU.Vector (Point V3 Double))
-        x = propagateToVector 10000000 (randomWalkP 1) origin
-    traj <- runRand x mwc
-    writeFile "traj" $ unlines $ map (\(P (V3 x y z)) -> unwords [show x, show y, show z]) (VU.toList traj)
-    writeFile "intensity" $ unlines $ map (show . beamIntensity 1) (VU.toList traj)
-    return ()
-
 main = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
     args <- execParser $ info (helper <*> options) mempty
