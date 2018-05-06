@@ -53,8 +53,8 @@ reflectiveCubeStep (V3 sx sy sz) x0 dx = go (x0 .+^ dx)
         in P (V3 x' y' z')
 
     bound s x
-      | x > s'         = s' - (x - s')
-      | x < negate s'  = negate s' - (x - s')
+      | x > s'         = s - x
+      | x < negate s'  = negate s - x
       | otherwise      = x
       where !s' = s/2
 {-# INLINEABLE reflectiveCubeStep #-}
