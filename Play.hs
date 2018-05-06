@@ -1,4 +1,5 @@
 {-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE TypeOperators #-}
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE BangPatterns #-}
@@ -12,6 +13,7 @@
 
 module Main (main) where
 
+import Data.Proxy
 import GHC.TypeLits
 import Control.Monad
 import Control.Monad.Primitive.Class
@@ -121,13 +123,14 @@ takeWithProgress n s = do
     f 0 s
 
 runSim :: forall (nDroplets :: Nat). (KnownNat nDroplets)
-       => FilePath -> Options -> IO ()
-runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
+       => Proxy nDroplets -> FilePath -> Options -> IO ()
+runSim nDropletsProxy outPath Opts{..} = withSystemRandom $ \mwc -> do
     let boxSize = boxSizeFactor *^ beamWidth
         dropletDiffusivity = 5.6e-3 -- nm^2/ns
         molDiffusivity = 0.122 -- nm^2/ns
         dropletSigma = sqrt $ msd dropletDiffusivity timeStep
         molSigma = sqrt $ msd molDiffusivity timeStep
+        nDroplets = natVal nDropletsProxy
 
         taus :: VU.Vector Int
         taus = VU.fromList $ nub $ map round
@@ -139,7 +142,6 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
         steps :: Int
         steps = ceiling $ 10 * maxLag / timeStep
 
-        nDroplets = 1
         dropletParams = DropletParams { bindingProb = 1e-5
                                       , unbindingProb = 1e-5
                                       , dropletSigma = dropletSigma
@@ -188,12 +190,12 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
 
         corr :: Int -> Rand IO (VU.Vector (Int, Double))
         corr idx = do
-            --pos <- streamToVector @V.Vector walk
-            --let int :: VU.Vector Double
-            --    int = VU.convert $ VG.map (VG.sum . VG.map (beamIntensity beamWidth)) pos
-            --lift $ writeTrajectory ("traj-"++show idx) $ concatMap (VG.toList . decimateV 10) $ VG.toList pos
+            pos <- streamToVector @VU.Vector walk
+            let int :: VU.Vector Double
+                int = VU.convert $ VG.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) pos
+            lift $ writeTrajectory ("traj-"++show idx) $ concatMap (VG.toList . decimateV 10 . VGS.fromSized . unHomArray) $ VG.toList pos
 
-            int <- streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
+            --int <- streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
             --lift $ writeFile "intensity" $ unlines $ map show $ VU.toList int
             let !meanInt = mean int
                 maxTau = VU.last taus
@@ -235,8 +237,10 @@ main = Progress.displayConsoleRegions $ do
     putStrLn $ "Expected offset: "++show expOffset
 
     createDirectoryIfMissing False (outputDir opts)
-    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim @10 (outputDir opts </> zeroPadded 2 i++"-") opts
-    runSim @10 (outputDir opts </> zeroPadded 2 0++"-") opts
+    let nDroplets = 10
+    Just (SomeNat nDropletsNat) <- pure $ someNatVal nDroplets
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim nDropletsNat (outputDir opts </> zeroPadded 2 i++"-") opts
+    runSim nDropletsNat (outputDir opts </> zeroPadded 2 0++"-") opts
     return ()
 
 -- | Render a number in zero-padded form
