@@ -2,14 +2,17 @@
 {-# LANGUAGE TypeFamilies #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE DataKinds #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE AllowAmbiguousTypes #-}
 
 module Main (main) where
 
+import GHC.TypeLits
 import Control.Monad
 import Control.Monad.Primitive.Class
 import Data.Foldable
@@ -25,7 +28,7 @@ import System.Directory
 import System.FilePath
 
 import qualified Data.Vector.Generic as VG
-import qualified Data.Vector as V
+import qualified Data.Vector.Generic.Sized as VGS
 import qualified Data.Vector.Unboxed as VU
 
 import Control.Lens
@@ -36,6 +39,7 @@ import Control.Monad.Trans.Class
 import GHC.Conc (getNumCapabilities, forkIO)
 import Options.Applicative
 
+import HomArray hiding (length)
 import Reflection
 import Propagator
 import Types
@@ -96,7 +100,7 @@ decimateV :: VG.Vector v a => Int -> v a -> v a
 decimateV n = VG.ifilter (\i _ -> i `mod` n == 0)
 
 takeWithProgress :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
-takeWithProgress n s = S.take n s
+--takeWithProgress n s = S.take n s
 takeWithProgress n s = do
     pg <- S.liftIO $ Progress.newProgressBar
         Progress.def { Progress.pgTotal = fromIntegral n
@@ -116,7 +120,8 @@ takeWithProgress n s = do
                   f (i+1) s'
     f 0 s
 
-runSim :: FilePath -> Options -> IO ()
+runSim :: forall (nDroplets :: Nat). (KnownNat nDroplets)
+       => FilePath -> Options -> IO ()
 runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
     let boxSize = boxSizeFactor *^ beamWidth
         dropletDiffusivity = 5.6e-3 -- nm^2/ns
@@ -154,41 +159,41 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
     putStrLn $ "Params: "++show dropletParams
     putStrLn $ "<N>: "++show spotMolCount
 
-    let testWalk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
+    let testWalk :: Stream (Of (HomArray nDroplets (Point V3 Length))) (Rand IO) ()
         testWalk = do
-            xs0 <- lift $ VU.replicateM nDroplets $ pointInBox boxSize
+            xs0 <- lift $ HomArray.replicateM $ pointInBox boxSize
             let prop = wanderInsideReflectiveCubeP boxSize molSigma
             decimate decimation
                 -- $ S.take steps
                 $ takeWithProgress steps
                 $ propagateToStream (propMany prop) xs0
 
-    let dropletWalk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
+    let dropletWalk :: Stream (Of (HomArray nDroplets (Point V3 Length))) (Rand IO) ()
         dropletWalk = do
-            xs0 <- lift $ VU.replicateM nDroplets $ do
+            xs0 <- lift $ HomArray.replicateM $ do
                 dropletPosition <- pointInBox boxSize
                 return Droplet { molPosition = origin, dropletPosition = dropletPosition, bound = False }
             let prop = dropletP boxSize dropletParams
-            S.map (VU.map absMolPosition)
+            S.map (HomArray . VGS.map absMolPosition . unHomArray)
                 $ decimate decimation
                 -- $ S.take steps
                 $ takeWithProgress steps
                 $ propagateToStream (propMany prop) xs0
 
         --walk :: Stream (Of Double) (Rand IO) ()
-        walk :: Stream (Of (VU.Vector (Point V3 Length))) (Rand IO) ()
+        walk :: Stream (Of (HomArray nDroplets (Point V3 Length))) (Rand IO) ()
         walk = case ModeWalkInCube of
           ModeDroplet -> dropletWalk
           ModeWalkInCube -> testWalk
 
         corr :: Int -> Rand IO (VU.Vector (Int, Double))
         corr idx = do
-            pos <- streamToVector @V.Vector walk
-            let int :: VU.Vector Double
-                int = VU.convert $ VG.map (VG.sum . VG.map (beamIntensity beamWidth)) pos
-            lift $ writeTrajectory ("traj-"++show idx) $ concatMap (VG.toList . decimateV 10) $ VG.toList pos
+            --pos <- streamToVector @V.Vector walk
+            --let int :: VU.Vector Double
+            --    int = VU.convert $ VG.map (VG.sum . VG.map (beamIntensity beamWidth)) pos
+            --lift $ writeTrajectory ("traj-"++show idx) $ concatMap (VG.toList . decimateV 10) $ VG.toList pos
 
-            --int <- streamToVector @VU.Vector $ S.map (VU.sum . VU.map (beamIntensity beamWidth)) walk
+            int <- streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
             --lift $ writeFile "intensity" $ unlines $ map show $ VU.toList int
             let !meanInt = mean int
                 maxTau = VU.last taus
@@ -230,8 +235,8 @@ main = Progress.displayConsoleRegions $ do
     putStrLn $ "Expected offset: "++show expOffset
 
     createDirectoryIfMissing False (outputDir opts)
-    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim (outputDir opts </> zeroPadded 2 i++"-") opts
-    runSim (outputDir opts </> zeroPadded 2 0++"-") opts
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim @10 (outputDir opts </> zeroPadded 2 i++"-") opts
+    runSim @10 (outputDir opts </> zeroPadded 2 0++"-") opts
     return ()
 
 -- | Render a number in zero-padded form

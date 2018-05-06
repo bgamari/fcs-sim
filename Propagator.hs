@@ -4,6 +4,7 @@
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE FlexibleContexts #-}
 
 module Propagator where
 
@@ -20,10 +21,13 @@ import Streaming (Of, Stream, lift)
 
 import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Mutable as VGM
+import qualified Data.Vector.Generic.Sized as VGS
+import qualified Data.Vector.Unboxed as VU
 import Data.Vector.Unboxed.Deriving
 
 import Control.Monad.Primitive
 
+import HomArray
 import Types
 import Reflection
 
@@ -73,9 +77,10 @@ propagateToVector steps (Propagator f) s0 = do
 
 --propagateToVector steps (Propagator f) s0 = return VG.empty
 
-propMany :: (Monad m, VG.Vector v a)
-         => Propagator m a -> Propagator m (v a)
-propMany (Propagator f) = Propagator (VG.mapM f)
+propMany :: (Monad m, VG.Vector VU.Vector a)
+         => Propagator m a -> Propagator m (HomArray n a)
+propMany (Propagator f) = Propagator (fmap HomArray . VGS.mapM f . unHomArray)
+{-# INLINEABLE propMany #-}
 
 randomWalkP :: MonadPrim m => Length -> Propagator (Rand m) (Point V3 Double)
 randomWalkP sigma = Propagator $ \x -> do

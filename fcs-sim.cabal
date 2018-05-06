@@ -62,7 +62,7 @@ executable fcs-sim-corr
 
 executable play
   main-is:             Play.hs
-  other-modules:       Reflection, Propagator, Types
+  other-modules:       Reflection, Propagator, Types, HomArray
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
   ghc-options:         -Wall -threaded -rtsopts -O2 -ddump-stg -ddump-to-file -dsuppress-idinfo
   build-depends:       base,
@@ -84,5 +84,7 @@ executable play
                        filepath,
                        directory,
                        QuickCheck,
+                       vector-sized,
+                       finite-typelits,
                        optparse-applicative
   default-language:    Haskell2010
