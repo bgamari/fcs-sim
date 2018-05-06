@@ -4,6 +4,7 @@
 {-# LANGUAGE BangPatterns #-}
 {-# LANGUAGE FlexibleContexts #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 
@@ -14,10 +15,8 @@ import Control.Monad.Primitive.Class
 import Data.Foldable
 import Data.Semigroup ((<>))
 import Data.List (nub)
-import Data.Functor.Identity
 import Linear
 import Linear.Affine
-import Numeric.Log
 import qualified Streaming as S
 import qualified Streaming.Prelude as S
 import Streaming (Of, Stream)
@@ -26,6 +25,7 @@ import System.Directory
 import System.FilePath
 
 import qualified Data.Vector.Generic as VG
+import qualified Data.Vector as V
 import qualified Data.Vector.Unboxed as VU
 
 import Control.Lens
@@ -80,7 +80,7 @@ options =
     Opts
     <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
     <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
-    <*> option auto ( short 'b' <> long "box-size-factor" <> value 60 <> help "size of simulation box")
+    <*> option auto ( short 'b' <> long "box-size-factor" <> value 40 <> help "size of simulation box")
     <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
     <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
     <*> option auto ( short 'l' <> long "min-lag" <> value 10000 <> help "minimum lag in nanoseconds")
@@ -92,7 +92,11 @@ data Mode = ModeDroplet | ModeWalkInCube
 decimate :: Monad m => Int -> Stream (Of a) m r -> Stream (Of a) m r
 decimate n = S.catMaybes . S.mapped S.head . S.chunksOf n
 
+decimateV :: VG.Vector v a => Int -> v a -> v a
+decimateV n = VG.ifilter (\i _ -> i `mod` n == 0)
+
 takeWithProgress :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
+takeWithProgress n s = S.take n s
 takeWithProgress n s = do
     pg <- S.liftIO $ Progress.newProgressBar
         Progress.def { Progress.pgTotal = fromIntegral n
@@ -130,7 +134,7 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
         steps :: Int
         steps = ceiling $ 10 * maxLag / timeStep
 
-        nDroplets = 80
+        nDroplets = 1
         dropletParams = DropletParams { bindingProb = 1e-5
                                       , unbindingProb = 1e-5
                                       , dropletSigma = dropletSigma
@@ -177,16 +181,16 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
           ModeDroplet -> dropletWalk
           ModeWalkInCube -> testWalk
 
-        corr :: Rand IO (VU.Vector (Int, Double))
-        corr = do
-            --pos <- streamToVector @VU.Vector $ S.map VU.head walk
-            --let int = VU.map (beamIntensity beamWidth) pos
-            --lift $ writeTrajectory "traj" $ VU.toList pos
+        corr :: Int -> Rand IO (VU.Vector (Int, Double))
+        corr idx = do
+            pos <- streamToVector @V.Vector walk
+            let int :: VU.Vector Double
+                int = VU.convert $ VG.map (VG.sum . VG.map (beamIntensity beamWidth)) pos
+            lift $ writeTrajectory ("traj-"++show idx) $ concatMap (VG.toList . decimateV 10) $ VG.toList pos
 
-            int <- streamToVector @VU.Vector
-                $ S.map (VU.sum . VU.map (beamIntensity beamWidth)) walk
+            --int <- streamToVector @VU.Vector $ S.map (VU.sum . VU.map (beamIntensity beamWidth)) walk
             --lift $ writeFile "intensity" $ unlines $ map show $ VU.toList int
-            let !meanInt = VU.sum int / realToFrac (VU.length int)
+            let !meanInt = mean int
                 maxTau = VU.last taus
             return $! VU.map (\tau -> (tau, correlate maxTau tau int / squared meanInt)) taus
 
@@ -195,7 +199,7 @@ runSim outPath Opts{..} = withSystemRandom $ \mwc -> do
     forM_ [0..] $ \i -> do
         let out = outPath++zeroPadded 4 i
         putStrLn out
-        v <- runRand corr mwc
+        v <- runRand (corr i) mwc
         writeFile out
           $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double))
           $ VU.toList v
@@ -204,15 +208,30 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path =
     writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
+expectedOffset :: Options -> RandST s Double
+expectedOffset opts@Opts{beamWidth} = do
+    ptsA <- VU.replicateM 10000 randInten
+    ptsB <- VU.replicateM 10000 randInten
+    return $ mean (VU.zipWith (*) ptsA ptsB) / mean ptsA / mean ptsB
+  where
+    randInten = beamIntensity beamWidth <$> pointInBox boxSize
+    boxSize = beamWidth ^* boxSizeFactor opts
+
+mean :: (RealFrac a, VG.Vector v a) => v a -> a
+mean xs = VG.sum xs / realToFrac (VG.length xs)
+
 main :: IO ()
 main = Progress.displayConsoleRegions $ do
     --quickCheck reflectiveStepIsInside
-    args <- execParser $ info (helper <*> options) mempty
+    opts <- execParser $ info (helper <*> options) mempty
     ncaps <- getNumCapabilities
 
-    createDirectoryIfMissing False (outputDir args)
-    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim (outputDir args </> zeroPadded 2 i++"-") args
-    runSim (outputDir args </> zeroPadded 2 0++"-") args
+    expOffset <- withSystemRandom $ \mwc -> flip runRand mwc $ expectedOffset opts
+    putStrLn $ "Expected offset: "++show expOffset
+
+    createDirectoryIfMissing False (outputDir opts)
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim (outputDir opts </> zeroPadded 2 i++"-") opts
+    runSim (outputDir opts </> zeroPadded 2 0++"-") opts
     return ()
 
 -- | Render a number in zero-padded form
