@@ -64,7 +64,7 @@ executable play
   main-is:             Play.hs
   other-modules:       Reflection, Propagator, Types, HomArray
   other-extensions:    RecordWildCards, BangPatterns, FlexibleContexts, FlexibleInstances, MultiParamTypeClasses, GeneralizedNewtypeDeriving, TypeFamilies, ExistentialQuantification, RankNTypes
-  ghc-options:         -Wall -threaded -rtsopts -O2 -ddump-stg -ddump-to-file -dsuppress-idinfo
+  ghc-options:         -Wall -threaded -rtsopts -O2 -ddump-stg -ddump-to-file -dsuppress-idinfo -ddump-simpl -g3
   build-depends:       base,
                        vector,
                        ascii-progress,

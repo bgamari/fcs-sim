@@ -5,6 +5,7 @@
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE RecordWildCards #-}
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE BangPatterns #-}
 
 module Propagator where
 
@@ -48,11 +49,18 @@ stepSpherical sigma = do
 -- | Generate a Gaussian-distributed step in Cartesian coordinates
 step3D :: MonadPrim m => Length -> Rand m (V3 Double)
 step3D sigma = do
+    s <- stepSpherical sigma
+    return $! view sphericalV3 s
+{-
+step3D sigma = do
     dir <- V3 <$> dist <*> dist <*> dist
     r <- normal 0 sigma
     return $! r *^ normalize dir
   where
     dist = uniformR (-1, 1)
+    -- N.B. normalize doesn't inline
+    normalize x = x ^* reciprocal (sqrt $ x `dot` x)
+-}
 {-# INLINEABLE step3D #-}
 
 newtype Propagator m a = Propagator (a -> m a)
@@ -190,12 +198,27 @@ dropletP boxSize DropletParams{..} = Propagator $ \x -> do
 
 streamToVector :: forall v a m r. (VG.Vector v a, PrimMonad m)
                => Stream (Of a) m r -> m (v a)
-streamToVector = VG.unfoldrM f
-  where f s = either (const Nothing) Just <$> S.next s
---streamToVector m = do
---    S.length m
---    return $ VG.empty
-{-# INLINEABLE streamToVector #-}
+streamToVector = VG.unfoldrM f where f s = either (const Nothing) Just <$> S.next s
+{-
+streamToVector m0 = do
+    acc <- VGM.new 1024
+    go acc 0 m0
+  where
+    go :: VG.Mutable v (PrimState m) a -> Int -> Stream (Of a) m r -> m (v a)
+    go acc !i m
+      | i >= len = do
+          acc' <- VGM.unsafeGrow acc (2*len)
+          go acc' i m
+      | otherwise = do
+          res <- S.next m
+          case res of
+            Left _ -> VG.unsafeFreeze acc
+            Right (x, m') -> do
+                VGM.unsafeWrite acc i x
+                go acc (i+1) m'
+      where len = VGM.length acc
+-}
+{-# INLINE streamToVector #-}
 
 derivingUnbox "Droplet"
     [t| Droplet -> (Point V3 Length, Point V3 Length, Bool) |]

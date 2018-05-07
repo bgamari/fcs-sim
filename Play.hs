@@ -31,6 +31,7 @@ import System.FilePath
 
 import qualified Data.Vector.Generic as VG
 import qualified Data.Vector.Generic.Sized as VGS
+import qualified Data.Vector.Fusion.Bundle as VB
 import qualified Data.Vector.Unboxed as VU
 
 import Control.Lens
@@ -215,12 +216,19 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path =
     writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
+{-# INLINE unstreamPrimM_RandIO #-}
+unstreamPrimM_RandIO :: (VG.Vector v a) => VB.MBundle (Rand IO) u a -> Rand IO (v a)
+unstreamPrimM_RandIO = VG.unstreamPrimM
+
+{-# RULES "unstreamM[RandIO]" VG.unstreamM = unstreamPrimM_RandIO #-}
+
 expectedOffset :: Options -> RandST s Double
 expectedOffset opts@Opts{beamWidth} = do
-    ptsA <- VU.replicateM 10000 randInten
-    ptsB <- VU.replicateM 10000 randInten
+    ptsA <- VU.replicateM steps randInten
+    ptsB <- VU.replicateM steps randInten
     return $ mean (VU.zipWith (*) ptsA ptsB) / mean ptsA / mean ptsB
   where
+    steps = 100000
     randInten = beamIntensity beamWidth <$> pointInBox boxSize
     boxSize = beamWidth ^* boxSizeFactor opts
 

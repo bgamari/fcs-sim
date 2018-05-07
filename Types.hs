@@ -29,4 +29,4 @@ sphericalV3 = iso from to
         r = sqrt (x^2 + y^2 + z^2)
         theta = acos (z / r)
         phi = atan2 y x
-{-# INLINE sphericalV3 #-}
+{-# INLINEABLE sphericalV3 #-}
