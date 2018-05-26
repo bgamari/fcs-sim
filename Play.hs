@@ -105,7 +105,7 @@ decimateV n = VG.ifilter (\i _ -> i `mod` n == 0)
 
 takeWithProgress :: S.MonadIO m => Int -> Stream (Of a) m r -> Stream (Of a) m ()
 --takeWithProgress n s = S.take n s
-takeWithProgress n s = do
+takeWithProgress n s0 = do
     pg <- S.liftIO $ Progress.newProgressBar
         Progress.def { Progress.pgTotal = fromIntegral n
                      , Progress.pgOnCompletion = Just "Done :percent after :elapsed seconds"
@@ -117,12 +117,12 @@ takeWithProgress n s = do
         f !i s = do
             r <- lift $ S.next s
             case r of
-              Left ret -> S.liftIO $ Progress.complete pg
+              Left _ret -> S.liftIO $ Progress.complete pg
               Right (x, s') -> do
                   when (i `mod` step == 0) $ S.liftIO $ Progress.tickN pg step
                   S.yield x
                   f (i+1) s'
-    f 0 s
+    f 0 s0
 
 runSim :: forall (nDroplets :: Nat). (KnownNat nDroplets)
        => Proxy nDroplets -> FilePath -> Options -> Rand IO ()
