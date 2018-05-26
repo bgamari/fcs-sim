@@ -34,7 +34,8 @@ import Reflection
 
 instance PrimMonad m => PrimMonad (Rand m) where
     type PrimState (Rand m) = PrimState m
-    primitive m = lift $ primitive m
+    primitive = lift . primitive
+    {-# INLINE primitive #-}
 
 -- | Generate a Gaussian-distributed step in spherical coordinates
 stepSpherical :: MonadPrim m => Length -> Rand m (Spherical Double)

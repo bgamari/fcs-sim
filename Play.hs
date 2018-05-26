@@ -16,6 +16,7 @@ module Main (main) where
 import Data.Proxy
 import GHC.TypeLits
 import Control.Monad
+import Control.Monad.IO.Class
 import Control.Monad.Primitive.Class
 import Data.Foldable
 import Data.Semigroup ((<>))
@@ -34,7 +35,7 @@ import qualified Data.Vector.Generic.Sized as VGS
 import qualified Data.Vector.Fusion.Bundle as VB
 import qualified Data.Vector.Unboxed as VU
 
-import Control.Lens
+import Control.Lens hiding ((<.>))
 import System.Random.MWC (withSystemRandom)
 import System.Random.MWC.Monad
 import Control.Monad.Primitive
@@ -124,8 +125,8 @@ takeWithProgress n s = do
     f 0 s
 
 runSim :: forall (nDroplets :: Nat). (KnownNat nDroplets)
-       => Proxy nDroplets -> FilePath -> Options -> IO ()
-runSim nDropletsProxy outPath Opts{..} = withSystemRandom $ \mwc -> do
+       => Proxy nDroplets -> FilePath -> Options -> Rand IO ()
+runSim nDropletsProxy outPath Opts{..} = do
     let boxSize = boxSizeFactor *^ beamWidth
         dropletDiffusivity = 5.6e-3 -- nm^2/ns
         molDiffusivity = 0.122 -- nm^2/ns
@@ -141,7 +142,7 @@ runSim nDropletsProxy outPath Opts{..} = withSystemRandom $ \mwc -> do
         decimation = ceiling $ minLag / timeStep
 
         steps :: Int
-        steps = ceiling $ 10 * maxLag / timeStep
+        steps = ceiling $ 40 * maxLag / timeStep
 
         dropletParams = DropletParams { bindingProb = 1e-5
                                       , unbindingProb = 1e-5
@@ -154,13 +155,16 @@ runSim nDropletsProxy outPath Opts{..} = withSystemRandom $ \mwc -> do
         spotMolCount = realToFrac nDroplets / product boxSize * spheroidVol (beamWidth ^. _x) (beamWidth ^. _z)
           where spheroidVol r1 r2 = 4*pi/3 * squared r1 * r2
 
-    putStrLn $ "Run length: "++show steps++" steps"
-    putStrLn $ "Decimation: "++show decimation
-    putStrLn $ "Box size: "++show boxSize
-    putStrLn $ "Droplet diffusivity: "++show dropletDiffusivity
-    putStrLn $ "Molecule diffusivity: "++show molDiffusivity
-    putStrLn $ "Params: "++show dropletParams
-    putStrLn $ "<N>: "++show spotMolCount
+    liftIO $ putStrLn $ unlines
+        [ "Run length: "++show steps++" steps"
+        , "Decimation: "++show decimation
+        , "Particle count: "++show nDroplets
+        , "Box size: "++show boxSize
+        , "Droplet diffusivity: "++show dropletDiffusivity
+        , "Molecule diffusivity: "++show molDiffusivity
+        , "Params: "++show dropletParams
+        , "<N>: "++show spotMolCount
+        ]
 
     let testWalk :: Stream (Of (HomArray nDroplets (Point V3 Length))) (Rand IO) ()
         testWalk = do
@@ -189,28 +193,33 @@ runSim nDropletsProxy outPath Opts{..} = withSystemRandom $ \mwc -> do
           ModeDroplet -> dropletWalk
           ModeWalkInCube -> testWalk
 
-        corr :: Int -> Rand IO (VU.Vector (Int, Double))
-        corr idx = do
-            pos <- streamToVector @VU.Vector walk
-            let int :: VU.Vector Double
-                int = VU.convert $ VG.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) pos
-            lift $ writeTrajectory ("traj-"++show idx) $ concatMap (VG.toList . decimateV 10 . VGS.fromSized . unHomArray) $ VG.toList pos
+        corr :: Rand IO (VU.Vector (Int, Double))
+        corr = do
+            --pos <- streamToVector @VU.Vector walk
+            --let int :: VU.Vector Double
+            --    int = VU.convert $ VG.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) pos
+            --lift $ writeTrajectory (outPath<.>"traj") $ concatMap (VG.toList . decimateV 100 . VGS.fromSized . unHomArray) $ VG.toList pos
 
-            --int <- streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
-            --lift $ writeFile "intensity" $ unlines $ map show $ VU.toList int
+            int <- streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
+            lift $ writeFile (outPath<.>"intensity") $ unlines $ map show $ VU.toList int
             let !meanInt = mean int
                 maxTau = VU.last taus
             return $! VU.map (\tau -> (tau, correlate maxTau tau int / squared meanInt)) taus
 
-    --runRand (S.mapM_ (S.liftIO . print) dropletWalk) mwc
+    --S.mapM_ (S.liftIO . print) dropletWalk
 
+    v <- corr
+    liftIO $ writeFile (outPath <.> "corr")
+      $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double))
+      $ VU.toList v
+
+runSims :: forall (nDroplets :: Nat). (KnownNat nDroplets)
+        => Proxy nDroplets -> FilePath -> Options -> IO ()
+runSims nDropletsProxy outPath opts = withSystemRandom $ \mwc -> do
     forM_ [0..] $ \i -> do
         let out = outPath++zeroPadded 4 i
         putStrLn out
-        v <- runRand (corr i) mwc
-        writeFile out
-          $ unlines $ map (\(x,y) -> show (realToFrac x * timeStep * realToFrac decimation) ++ "\t" ++ show (realToFrac y :: Double))
-          $ VU.toList v
+        runRand (runSim nDropletsProxy out opts) mwc
 
 writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path =
@@ -247,8 +256,8 @@ main = Progress.displayConsoleRegions $ do
     createDirectoryIfMissing False (outputDir opts)
     let nDroplets = 10
     Just (SomeNat nDropletsNat) <- pure $ someNatVal nDroplets
-    forM_ [1..ncaps-1] $ \i -> forkIO $ runSim nDropletsNat (outputDir opts </> zeroPadded 2 i++"-") opts
-    runSim nDropletsNat (outputDir opts </> zeroPadded 2 0++"-") opts
+    forM_ [1..ncaps-1] $ \i -> forkIO $ runSims nDropletsNat (outputDir opts </> zeroPadded 2 i++"-") opts
+    runSims nDropletsNat (outputDir opts </> zeroPadded 2 0++"-") opts
     return ()
 
 -- | Render a number in zero-padded form
