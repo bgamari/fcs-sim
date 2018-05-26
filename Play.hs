@@ -275,8 +275,9 @@ msd d dt = 6 * d * dt
 -- | Compute the correlation function with zero boundaries at the given lag
 correlate :: (VG.Vector v a, RealFrac a) => Int -> Int -> v a -> a
 correlate maxTau tau xs =
-    VG.sum $ VG.zipWith (*) (VG.take (len - maxTau) xs) (VG.drop tau xs)
+    (/ denom) $ VG.sum $ VG.zipWith (*) (VG.take (len - maxTau) xs) (VG.drop tau xs)
   where len = VG.length xs
+        denom = realToFrac $ len - maxTau
 
 -- | Generate a logarithmically-spaced
 logSpace :: (RealFloat a, Enum a) => a -> a -> Int -> [a]
