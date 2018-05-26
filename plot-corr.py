@@ -9,6 +9,8 @@ import argparse
 
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--output', type=argparse.FileType('w'), help='Output path')
+parser.add_argument('-O', '--corr-output', type=argparse.FileType('w'), help='Aggregate correlation output path')
+parser.add_argument('-f', '--fit', action='store_true')
 parser.add_argument('files', nargs='+', type=argparse.FileType('r'), help='Input correlations')
 args = parser.parse_args()
 
@@ -43,6 +45,7 @@ for fname in fnames:
         a['g'] -= norm
     else:
         # linear space
+        print(a['g'][0]**2)
         a = a[np.isfinite(a['g'])]
         norm = a[0]['g']
         norms.append(norm)
@@ -73,7 +76,9 @@ err = np.std(corrs['g'], axis=0) / np.sqrt(corrs.shape[0])
 print(np.nonzero(np.logical_not(np.isfinite(corrs['g']))))
 pl.errorbar(corrs['tau'][0], mu, yerr=err, c='k', ecolor='0.5', linewidth=1)
 pl.axhline(0, c='k')
-np.savetxt('avg-corr.txt', np.array([corrs[0]['tau'], mu+1, err**2]).T)
+
+if args.corr_output:
+    np.savetxt(args.corr_output, np.array([corrs[0]['tau'], mu+1, err**2]).T)
 
 def f(tau, g0, a, *ds):
     return g0 * sum((1 + tau/d)**-1 * (1 + a**2 * tau / d)**(-1./2) for d in ds)
@@ -82,7 +87,7 @@ def fAspect(tau, g0, *ds):
     a = 2
     return g0 * sum((1 + tau/d)**-1 * (1 + a**2 * tau / d)**(-1./2) for d in ds)
 
-if False:
+if args.fit:
     #p0 = (1, 1e-3); fitFunc = fAspect
     p0 = (1, 2, 1e-3); fitFunc = f
     p1,covar = scipy.optimize.curve_fit(fitFunc, corrs[0]['tau'], mu, p0=p0)
