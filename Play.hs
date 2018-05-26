@@ -88,7 +88,7 @@ options =
     Opts
     <$> option auto ( short 'w' <> long "beam-width" <> value (V3 400 400 1000) <> help "size of excitation volume")
     <*> option auto ( short 'd' <> long "diffusivity" <> value 1.1e-3 <> help "diffusivity")
-    <*> option auto ( short 'b' <> long "box-size-factor" <> value 40 <> help "size of simulation box")
+    <*> option auto ( short 'b' <> long "box-size-factor" <> value 50 <> help "size of simulation box")
     <*> option auto ( short 't' <> long "time-step" <> value 100 <> help "simulation timestep")
     <*> option auto ( short 'n' <> long "corr-pts" <> value 400 <> help "number of points to sample of correlation function")
     <*> option auto ( short 'l' <> long "min-lag" <> value 10000 <> help "minimum lag in nanoseconds")
@@ -195,15 +195,20 @@ runSim nDropletsProxy outPath Opts{..} = do
 
         corr :: Rand IO (VU.Vector (Int, Double))
         corr = do
-            --pos <- streamToVector @VU.Vector walk
-            --let int :: VU.Vector Double
-            --    int = VU.convert $ VG.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) pos
-            --lift $ writeTrajectory (outPath<.>"traj") $ concatMap (VG.toList . decimateV 100 . VGS.fromSized . unHomArray) $ VG.toList pos
+            int <- if False
+                then do
+                  pos <- streamToVector @VU.Vector walk
+                  let int :: VU.Vector Double
+                      int = VU.convert $ VG.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) pos
+                  lift $ writeTrajectory (outPath<.>"traj") $ concatMap (VG.toList . decimateV 100 . VGS.fromSized . unHomArray) $ VG.toList pos
+                  return int
+                else
+                  streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
 
-            int <- streamToVector @VU.Vector $ S.map (VGS.sum . VGS.map (beamIntensity beamWidth) . unHomArray) walk
             lift $ writeFile (outPath<.>"intensity") $ unlines $ map show $ VU.toList int
             let !meanInt = mean int
                 maxTau = VU.last taus
+            liftIO $ putStrLn $ "Mean intensity: "++show meanInt
             return $! VU.map (\tau -> (tau, correlate maxTau tau int / squared meanInt)) taus
 
     --S.mapM_ (S.liftIO . print) dropletWalk
@@ -254,7 +259,7 @@ main = Progress.displayConsoleRegions $ do
     putStrLn $ "Expected offset: "++show expOffset
 
     createDirectoryIfMissing False (outputDir opts)
-    let nDroplets = 10
+    let nDroplets = 5
     Just (SomeNat nDropletsNat) <- pure $ someNatVal nDroplets
     forM_ [1..ncaps-1] $ \i -> forkIO $ runSims nDropletsNat (outputDir opts </> zeroPadded 2 i++"-") opts
     runSims nDropletsNat (outputDir opts </> zeroPadded 2 0++"-") opts
@@ -275,9 +280,8 @@ msd d dt = 6 * d * dt
 -- | Compute the correlation function with zero boundaries at the given lag
 correlate :: (VG.Vector v a, RealFrac a) => Int -> Int -> v a -> a
 correlate maxTau tau xs =
-    (/ denom) $ VG.sum $ VG.zipWith (*) (VG.take (len - maxTau) xs) (VG.drop tau xs)
+    mean $ VG.zipWith (*) (VG.take (len - maxTau) xs) (VG.drop tau xs)
   where len = VG.length xs
-        denom = realToFrac $ len - maxTau
 
 -- | Generate a logarithmically-spaced
 logSpace :: (RealFloat a, Enum a) => a -> a -> Int -> [a]

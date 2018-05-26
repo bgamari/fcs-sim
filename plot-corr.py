@@ -10,6 +10,7 @@ import argparse
 parser = argparse.ArgumentParser()
 parser.add_argument('-o', '--output', type=argparse.FileType('w'), help='Output path')
 parser.add_argument('-O', '--corr-output', type=argparse.FileType('w'), help='Aggregate correlation output path')
+parser.add_argument('-n', '--normalise', action='store_true')
 parser.add_argument('-f', '--fit', action='store_true')
 parser.add_argument('files', nargs='+', type=argparse.FileType('r'), help='Input correlations')
 args = parser.parse_args()
@@ -45,24 +46,27 @@ for fname in fnames:
         a['g'] -= norm
     else:
         # linear space
-        print(a['g'][0]**2)
         a = a[np.isfinite(a['g'])]
         norm = a[0]['g']
         norms.append(norm)
-        a['g'] /= norm
+        if args.normalise:
+            a['g'] /= norm
 
     if not np.all(np.isfinite(a['g'])):
         print('NaN2')
         continue
+
+    print(np.nonzero(a['g'] < 1))
     print(a.shape, a['tau'][0], a['tau'][-1])
     corrs.append(a)
     #pl.semilogx(a['tau'], a['g'], '-')
 
 corrs = np.vstack(corrs)
-#corrs['g'] *= np.mean(norms)
+if args.normalise:
+    corrs['g'] *= np.mean(norms)
 
 for corr in corrs:
-    pl.semilogx(corr['tau'], corr['g'], '-', alpha=0.2)
+    pl.semilogx(corr['tau'], corr['g'], '-', alpha=0.2, linewidth=0.3)
 
 pl.xlabel(r'$\tau$ (s)')
 pl.ylabel(r'$G(\tau)$')
@@ -74,11 +78,11 @@ pl.suptitle('Molecule diffusion inside "sticky" droplet, simulated')
 mu = np.mean(corrs['g'], axis=0)
 err = np.std(corrs['g'], axis=0) / np.sqrt(corrs.shape[0])
 print(np.nonzero(np.logical_not(np.isfinite(corrs['g']))))
-pl.errorbar(corrs['tau'][0], mu, yerr=err, c='k', ecolor='0.5', linewidth=1)
-pl.axhline(0, c='k')
+pl.errorbar(corrs['tau'][0], mu, yerr=err, c='k', ecolor='0.5', linewidth=0.4)
+pl.axhline(1, c='k', alpha=0.6, lw=0.1)
 
 if args.corr_output:
-    np.savetxt(args.corr_output, np.array([corrs[0]['tau'], mu+1, err**2]).T)
+    np.savetxt(args.corr_output, np.array([corrs[0]['tau'], mu, err**2]).T)
 
 def f(tau, g0, a, *ds):
     return g0 * sum((1 + tau/d)**-1 * (1 + a**2 * tau / d)**(-1./2) for d in ds)
