@@ -17,16 +17,17 @@ data Spherical a = Spherical { _r      :: !a    -- ^ radial
                  deriving (Show, Eq, Ord)
 
 sphericalV3 :: RealFloat a => Iso' (Spherical a) (V3 a)
-sphericalV3 = iso from to
+sphericalV3 = iso from_ to_
   where
-    from (Spherical r theta phi) = V3 x y z
+    from_ (Spherical r theta phi) = V3 x y z
       where
         x = r * sin theta * cos phi
         y = r * sin theta * sin phi
         z = r * cos theta
-    to (V3 x y z) = Spherical r theta phi
+    to_ (V3 x y z) = Spherical r theta phi
       where
-        r = sqrt (x^2 + y^2 + z^2)
+        r = sqrt (sqr x + sqr y + sqr z)
+        sqr w = w*w
         theta = acos (z / r)
         phi = atan2 y x
 {-# INLINEABLE sphericalV3 #-}

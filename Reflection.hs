@@ -3,9 +3,10 @@
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE BangPatterns #-}
 
+{-# OPTIONS_GHC -Wno-orphans #-}
+
 module Reflection where
 
-import Debug.Trace
 import Linear
 import Linear.Affine
 import Test.QuickCheck
