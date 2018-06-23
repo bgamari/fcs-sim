@@ -142,7 +142,7 @@ runSim nDropletsProxy outPath Opts{..} = do
         decimation = ceiling $ minLag / timeStep
 
         steps :: Int
-        steps = ceiling $ 40 * maxLag / timeStep
+        steps = ceiling $ 80 * maxLag / timeStep
 
         dropletParams = DropletParams { bindingProb = 1e-5
                                       , unbindingProb = 1e-5
