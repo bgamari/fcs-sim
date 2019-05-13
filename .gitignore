@@ -2,3 +2,7 @@
 *.o
 *~
 dist
+dist-newstyle
+bin
+runs
+data
