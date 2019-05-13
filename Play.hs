@@ -230,11 +230,13 @@ writeTrajectory :: FilePath -> [Point V3 Double] -> IO ()
 writeTrajectory path =
     writeFile path . unlines . map (\(P (V3 x y z)) -> unwords [show x, show y, show z])
 
+{-
 {-# INLINE unstreamPrimM_RandIO #-}
 unstreamPrimM_RandIO :: (VG.Vector v a) => VB.MBundle (Rand IO) u a -> Rand IO (v a)
 unstreamPrimM_RandIO = VG.unstreamPrimM
 
 {-# RULES "unstreamM[RandIO]" VG.unstreamM = unstreamPrimM_RandIO #-}
+-}
 
 expectedOffset :: Options -> RandST s Double
 expectedOffset opts@Opts{beamWidth} = do
