@@ -47,8 +47,8 @@ instance (KnownNat n, VU.Unbox a, VGM.MVector VUM.MVector a)
     basicOverlaps (MV_HomArray _ u) (MV_HomArray _ v) = or $ VGS.zipWith VGM.basicOverlaps u v
     basicUnsafeNew len = MV_HomArray len <$> VGS.replicateM (VGM.basicUnsafeNew len)
     basicInitialize (MV_HomArray _ v) = VGS.mapM_ VGM.basicInitialize v
-    basicUnsafeRead (MV_HomArray _ v) i = HomArray <$> VGS.generateM (\j -> VGS.index v j `VGM.basicUnsafeRead` i)
-    basicUnsafeWrite (MV_HomArray _ v) i (HomArray u) = VGS.imapM_ (\j x -> VGM.basicUnsafeWrite (VGS.index v j) i x) u
+    basicUnsafeRead (MV_HomArray _ v) i = HomArray <$> VGS.generateM (\j -> VGS.index v (finite $ fromIntegral j) `VGM.basicUnsafeRead` i)
+    basicUnsafeWrite (MV_HomArray _ v) i (HomArray u) = VGS.imapM_ (\j x -> VGM.basicUnsafeWrite (VGS.index v (finite $ fromIntegral j)) i x) u
     {-# INLINE basicLength #-}
     {-# INLINE basicUnsafeSlice #-}
     {-# INLINE basicOverlaps #-}
